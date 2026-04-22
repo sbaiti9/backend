@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: esprit.subscription.controller.SubscriptionAIControllerTest
+-------------------------------------------------------------------------------
+Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 3.532 s -- in esprit.subscription.controller.SubscriptionAIControllerTest
