@@ -1,0 +1,381 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PromoCodeService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.service</a> &gt; <span class="el_source">PromoCodeService.java</span></div><h1>PromoCodeService.java</h1><pre class="source lang-java linenums">package esprit.subscription.service;
+
+import esprit.subscription.DTO.PromoValidationDto;
+import esprit.subscription.DTO.CompanyDto;
+import esprit.subscription.client.EntrepriseClient;
+import esprit.subscription.entity.PromoAudience;
+import esprit.subscription.entity.PromoCode;
+import esprit.subscription.entity.PromoDiscountType;
+import esprit.subscription.entity.PromoRedemption;
+import esprit.subscription.repository.PromoCodeRepository;
+import esprit.subscription.repository.PromoRedemptionRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.security.SecureRandom;
+import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+@Service
+public class PromoCodeService {
+
+<span class="fc" id="L29">    private static final Logger log = LoggerFactory.getLogger(PromoCodeService.class);</span>
+
+    public static final String BIRTHDAY_CODE_PREFIX = &quot;BDAY-&quot;;
+    private static final int BIRTHDAY_DISCOUNT_PERCENT = 20;
+    private static final int BIRTHDAY_VALIDITY_DAYS = 30;
+
+    private final PromoCodeRepository promoCodeRepository;
+    private final PromoRedemptionRepository promoRedemptionRepository;
+    private final EntrepriseClient entrepriseClient;
+    private final EmailService emailService;
+<span class="fc" id="L39">    private final SecureRandom random = new SecureRandom();</span>
+
+    public PromoCodeService(
+            PromoCodeRepository promoCodeRepository,
+            PromoRedemptionRepository promoRedemptionRepository,
+            EntrepriseClient entrepriseClient,
+<span class="fc" id="L45">            EmailService emailService) {</span>
+<span class="fc" id="L46">        this.promoCodeRepository = promoCodeRepository;</span>
+<span class="fc" id="L47">        this.promoRedemptionRepository = promoRedemptionRepository;</span>
+<span class="fc" id="L48">        this.entrepriseClient = entrepriseClient;</span>
+<span class="fc" id="L49">        this.emailService = emailService;</span>
+<span class="fc" id="L50">    }</span>
+
+    public static String normalizeCodeInput(String raw) {
+<span class="nc bnc" id="L53" title="All 2 branches missed.">        return raw == null ? &quot;&quot; : raw.trim();</span>
+    }
+
+    /**
+     * Maps API roles (ETUDIANT / ENTERPRISE / …) to {@link PromoAudience} rules.
+     */
+    public static PromoAudience audienceFromUserRole(String userRole) {
+<span class="nc bnc" id="L60" title="All 4 branches missed.">        if (userRole == null || userRole.isBlank()) {</span>
+<span class="nc" id="L61">            return PromoAudience.ALL;</span>
+        }
+<span class="nc" id="L63">        String u = userRole.trim().toUpperCase(Locale.ROOT);</span>
+<span class="nc bnc" id="L64" title="All 4 branches missed.">        if (u.contains(&quot;ETUDIANT&quot;) || &quot;STUDENT&quot;.equals(u)) {</span>
+<span class="nc" id="L65">            return PromoAudience.STUDENT;</span>
+        }
+<span class="nc bnc" id="L67" title="All 6 branches missed.">        if (u.contains(&quot;ENTREPRISE&quot;) || &quot;ENTERPRISE&quot;.equals(u) || &quot;COMPANY&quot;.equals(u)) {</span>
+<span class="nc" id="L68">            return PromoAudience.ENTERPRISE;</span>
+        }
+<span class="nc" id="L70">        return PromoAudience.STUDENT;</span>
+    }
+
+    @Transactional
+    public PromoCode createAiTargetingPromo(Long userId, int discountPercent) {
+<span class="nc bnc" id="L75" title="All 4 branches missed.">        if (discountPercent &lt; 1 || discountPercent &gt; 50) {</span>
+<span class="nc" id="L76">            throw new IllegalArgumentException(&quot;discount must be between 1 and 50&quot;);</span>
+        }
+<span class="nc" id="L78">        String code = &quot;AI-TGT-&quot; + randomHex(8);</span>
+<span class="nc bnc" id="L79" title="All 2 branches missed.">        while (promoCodeRepository.findByCodeNormalized(code).isPresent()) {</span>
+<span class="nc" id="L80">            code = &quot;AI-TGT-&quot; + randomHex(8);</span>
+        }
+<span class="nc" id="L82">        PromoCode p = new PromoCode();</span>
+<span class="nc" id="L83">        p.setCode(code);</span>
+<span class="nc" id="L84">        p.setDiscountType(PromoDiscountType.PERCENT);</span>
+<span class="nc" id="L85">        p.setDiscountPercent((double) discountPercent);</span>
+<span class="nc" id="L86">        p.setCreatedByUserId(userId);</span>
+<span class="nc" id="L87">        p.setMaxUses(1);</span>
+<span class="nc" id="L88">        p.setCurrentUses(0);</span>
+<span class="nc" id="L89">        p.setExpirationDate(LocalDateTime.now().plusDays(30));</span>
+<span class="nc" id="L90">        p.setActive(true);</span>
+<span class="nc" id="L91">        p.setApplicableAudience(PromoAudience.ALL);</span>
+<span class="nc" id="L92">        p.setMaxRedemptionsPerUser(1);</span>
+<span class="nc" id="L93">        PromoCode saved = promoCodeRepository.save(p);</span>
+<span class="nc" id="L94">        log.info(&quot;AI targeting promo created — code={} userId={} discount={}%&quot;, saved.getCode(), userId, discountPercent);</span>
+        try {
+<span class="nc" id="L96">            CompanyDto co = entrepriseClient.getCompanyByUserId(userId);</span>
+<span class="nc bnc" id="L97" title="All 4 branches missed.">            if (co != null &amp;&amp; co.getEmail() != null) {</span>
+<span class="nc" id="L98">                emailService.sendAiTargetingPromoEmail(</span>
+<span class="nc" id="L99">                        co.getEmail(),</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">                        co.getName() != null ? co.getName() : &quot;Client&quot;,</span>
+<span class="nc" id="L101">                        saved.getCode(),</span>
+                        discountPercent);
+            }
+<span class="nc" id="L104">        } catch (Exception e) {</span>
+<span class="nc" id="L105">            log.warn(&quot;AI promo email not sent for userId={}&quot;, userId, e);</span>
+<span class="nc" id="L106">        }</span>
+<span class="nc" id="L107">        return saved;</span>
+    }
+
+    @Transactional
+    public PromoCode createPromoCode(Long userId, PromoCode promoCode) {
+<span class="nc" id="L112">        LocalDateTime thirtyDaysAgo = LocalDateTime.now().minusDays(30);</span>
+<span class="nc" id="L113">        boolean recentExists = promoCodeRepository.existsByCreatedByUserIdSince(userId, thirtyDaysAgo);</span>
+<span class="nc bnc" id="L114" title="All 2 branches missed.">        if (recentExists) {</span>
+<span class="nc" id="L115">            throw new IllegalStateException(&quot;User &quot; + userId + &quot; already created a promo code within the last 30 days.&quot;);</span>
+        }
+<span class="nc" id="L117">        promoCode.setCreatedByUserId(userId);</span>
+<span class="nc bnc" id="L118" title="All 2 branches missed.">        if (promoCode.getDiscountType() == null) {</span>
+<span class="nc" id="L119">            promoCode.setDiscountType(PromoDiscountType.PERCENT);</span>
+        }
+<span class="nc bnc" id="L121" title="All 2 branches missed.">        if (promoCode.getApplicableAudience() == null) {</span>
+<span class="nc" id="L122">            promoCode.setApplicableAudience(PromoAudience.ALL);</span>
+        }
+<span class="nc" id="L124">        PromoCode saved = promoCodeRepository.save(promoCode);</span>
+<span class="nc" id="L125">        log.info(</span>
+                &quot;PromoCode created — code={} userId={} type={}&quot;,
+<span class="nc" id="L127">                saved.getCode(),</span>
+                userId,
+<span class="nc" id="L129">                saved.effectiveDiscountType());</span>
+<span class="nc" id="L130">        return saved;</span>
+    }
+
+    /**
+     * Legacy: basic global validation only (no per-user / audience / plan).
+     */
+    public Optional&lt;PromoCode&gt; validate(String code) {
+<span class="nc" id="L137">        String n = normalizeCodeInput(code);</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">        if (n.isEmpty()) {</span>
+<span class="nc" id="L139">            return Optional.empty();</span>
+        }
+<span class="nc" id="L141">        return promoCodeRepository.findByCodeNormalized(n).filter(this::passesGlobalRules);</span>
+    }
+
+    public Optional&lt;PromoCode&gt; findNormalized(String code) {
+<span class="nc" id="L145">        String n = normalizeCodeInput(code);</span>
+<span class="nc bnc" id="L146" title="All 2 branches missed.">        if (n.isEmpty()) {</span>
+<span class="nc" id="L147">            return Optional.empty();</span>
+        }
+<span class="nc" id="L149">        return promoCodeRepository.findByCodeNormalized(n);</span>
+    }
+
+    private boolean passesGlobalRules(PromoCode p) {
+<span class="nc bnc" id="L153" title="All 2 branches missed.">        if (!p.isActive()) {</span>
+<span class="nc" id="L154">            return false;</span>
+        }
+<span class="nc bnc" id="L156" title="All 4 branches missed.">        if (p.getExpirationDate() != null &amp;&amp; p.getExpirationDate().isBefore(LocalDateTime.now())) {</span>
+<span class="nc" id="L157">            return false;</span>
+        }
+<span class="nc bnc" id="L159" title="All 6 branches missed.">        if (p.getMaxUses() != null &amp;&amp; p.getCurrentUses() != null &amp;&amp; p.getCurrentUses() &gt;= p.getMaxUses()) {</span>
+<span class="nc" id="L160">            return false;</span>
+        }
+<span class="nc" id="L162">        return true;</span>
+    }
+
+    public PromoValidationDto validateDetailed(
+            String rawCode,
+            Long userId,
+            String userRole,
+            Long planId,
+            String billingCycle,
+            Double baseAmountEur) {
+<span class="nc" id="L172">        String n = normalizeCodeInput(rawCode);</span>
+<span class="nc bnc" id="L173" title="All 2 branches missed.">        if (n.isEmpty()) {</span>
+<span class="nc" id="L174">            return PromoValidationDto.builder().valid(false).message(&quot;Code requis&quot;).build();</span>
+        }
+<span class="nc" id="L176">        Optional&lt;PromoCode&gt; opt = promoCodeRepository.findByCodeNormalized(n);</span>
+<span class="nc bnc" id="L177" title="All 2 branches missed.">        if (opt.isEmpty()) {</span>
+<span class="nc" id="L178">            return PromoValidationDto.builder().valid(false).message(&quot;Code promo inconnu&quot;).build();</span>
+        }
+<span class="nc" id="L180">        PromoCode p = opt.get();</span>
+<span class="nc bnc" id="L181" title="All 2 branches missed.">        if (!passesGlobalRules(p)) {</span>
+<span class="nc bnc" id="L182" title="All 2 branches missed.">            String msg = !p.isActive()</span>
+<span class="nc" id="L183">                    ? &quot;Code inactif&quot;</span>
+<span class="nc bnc" id="L184" title="All 4 branches missed.">                    : (p.getExpirationDate() != null &amp;&amp; p.getExpirationDate().isBefore(LocalDateTime.now()))</span>
+<span class="nc" id="L185">                            ? &quot;Code expiré&quot;</span>
+<span class="nc" id="L186">                            : &quot;Code épuisé&quot;;</span>
+<span class="nc" id="L187">            return PromoValidationDto.builder().valid(false).message(msg).build();</span>
+        }
+<span class="nc bnc" id="L189" title="All 6 branches missed.">        if (userId != null &amp;&amp; p.getCreatedByUserId() != null &amp;&amp; !p.getCreatedByUserId().equals(userId)) {</span>
+<span class="nc" id="L190">            boolean creatorMustMatch =</span>
+<span class="nc bnc" id="L191" title="All 4 branches missed.">                    (p.getMaxUses() != null &amp;&amp; p.getMaxUses() == 1)</span>
+<span class="nc bnc" id="L192" title="All 2 branches missed.">                            || (p.getCode() != null</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">                                    &amp;&amp; (p.getCode().startsWith(&quot;AI-TGT-&quot;)</span>
+<span class="nc bnc" id="L194" title="All 2 branches missed.">                                            || p.getCode().startsWith(BIRTHDAY_CODE_PREFIX)));</span>
+<span class="nc bnc" id="L195" title="All 2 branches missed.">            if (creatorMustMatch) {</span>
+<span class="nc" id="L196">                return PromoValidationDto.builder()</span>
+<span class="nc" id="L197">                        .valid(false)</span>
+<span class="nc" id="L198">                        .message(&quot;Ce code n'est pas associé à ce compte.&quot;)</span>
+<span class="nc" id="L199">                        .build();</span>
+            }
+        }
+<span class="nc bnc" id="L202" title="All 2 branches missed.">        PromoAudience need = p.getApplicableAudience() != null ? p.getApplicableAudience() : PromoAudience.ALL;</span>
+<span class="nc bnc" id="L203" title="All 4 branches missed.">        if (need != PromoAudience.ALL &amp;&amp; userRole != null) {</span>
+<span class="nc" id="L204">            PromoAudience actual = audienceFromUserRole(userRole);</span>
+<span class="nc bnc" id="L205" title="All 4 branches missed.">            if (need == PromoAudience.STUDENT &amp;&amp; actual != PromoAudience.STUDENT) {</span>
+<span class="nc" id="L206">                return PromoValidationDto.builder()</span>
+<span class="nc" id="L207">                        .valid(false)</span>
+<span class="nc" id="L208">                        .message(&quot;Ce code est réservé aux comptes étudiants.&quot;)</span>
+<span class="nc" id="L209">                        .build();</span>
+            }
+<span class="nc bnc" id="L211" title="All 4 branches missed.">            if (need == PromoAudience.ENTERPRISE &amp;&amp; actual != PromoAudience.ENTERPRISE) {</span>
+<span class="nc" id="L212">                return PromoValidationDto.builder()</span>
+<span class="nc" id="L213">                        .valid(false)</span>
+<span class="nc" id="L214">                        .message(&quot;Ce code est réservé aux comptes entreprise.&quot;)</span>
+<span class="nc" id="L215">                        .build();</span>
+            }
+        }
+<span class="nc bnc" id="L218" title="All 4 branches missed.">        if (planId != null &amp;&amp; !allowedPlanIdsOk(p, planId)) {</span>
+<span class="nc" id="L219">            return PromoValidationDto.builder()</span>
+<span class="nc" id="L220">                    .valid(false)</span>
+<span class="nc" id="L221">                    .message(&quot;Ce code ne s'applique pas à ce plan.&quot;)</span>
+<span class="nc" id="L222">                    .build();</span>
+        }
+<span class="nc bnc" id="L224" title="All 4 branches missed.">        if (userId != null &amp;&amp; !perUserLimitOk(p, userId)) {</span>
+<span class="nc" id="L225">            return PromoValidationDto.builder()</span>
+<span class="nc" id="L226">                    .valid(false)</span>
+<span class="nc" id="L227">                    .message(&quot;Vous avez déjà utilisé ce code le nombre maximum de fois.&quot;)</span>
+<span class="nc" id="L228">                    .build();</span>
+        }
+
+<span class="nc" id="L231">        PromoValidationDto.PromoValidationDtoBuilder b = PromoValidationDto.builder()</span>
+<span class="nc" id="L232">                .valid(true)</span>
+<span class="nc" id="L233">                .code(p.getCode())</span>
+<span class="nc" id="L234">                .discountType(p.effectiveDiscountType().name())</span>
+<span class="nc" id="L235">                .currency(&quot;EUR&quot;);</span>
+
+<span class="nc bnc" id="L237" title="All 2 branches missed.">        if (p.effectiveDiscountType() == PromoDiscountType.PERCENT) {</span>
+<span class="nc" id="L238">            b.discountPercent(p.getDiscountPercent());</span>
+        } else {
+<span class="nc bnc" id="L240" title="All 2 branches missed.">            b.discountAmount(p.getDiscountAmount() != null ? p.getDiscountAmount() : 0d);</span>
+        }
+
+<span class="nc bnc" id="L243" title="All 4 branches missed.">        if (baseAmountEur != null &amp;&amp; baseAmountEur &gt; 0) {</span>
+<span class="nc" id="L244">            double fin = applyDiscountToAmount(baseAmountEur, p);</span>
+<span class="nc" id="L245">            b.originalAmount(round2(baseAmountEur)).finalAmount(round2(fin));</span>
+        }
+
+<span class="nc" id="L248">        return b.build();</span>
+    }
+
+    private boolean allowedPlanIdsOk(PromoCode p, long planId) {
+<span class="nc" id="L252">        String raw = p.getAllowedPlanIds();</span>
+<span class="nc bnc" id="L253" title="All 4 branches missed.">        if (raw == null || raw.isBlank()) {</span>
+<span class="nc" id="L254">            return true;</span>
+        }
+<span class="nc" id="L256">        Set&lt;Long&gt; ids = Arrays.stream(raw.split(&quot;,&quot;))</span>
+<span class="nc" id="L257">                .map(String::trim)</span>
+<span class="nc bnc" id="L258" title="All 2 branches missed.">                .filter(s -&gt; !s.isEmpty())</span>
+<span class="nc" id="L259">                .map(s -&gt; {</span>
+                    try {
+<span class="nc" id="L261">                        return Long.parseLong(s);</span>
+<span class="nc" id="L262">                    } catch (NumberFormatException e) {</span>
+<span class="nc" id="L263">                        return null;</span>
+                    }
+                })
+<span class="nc bnc" id="L266" title="All 2 branches missed.">                .filter(x -&gt; x != null)</span>
+<span class="nc" id="L267">                .collect(Collectors.toSet());</span>
+<span class="nc bnc" id="L268" title="All 4 branches missed.">        return !ids.isEmpty() &amp;&amp; ids.contains(planId);</span>
+    }
+
+    private boolean perUserLimitOk(PromoCode p, long userId) {
+<span class="nc" id="L272">        Integer maxPu = p.getMaxRedemptionsPerUser();</span>
+<span class="nc bnc" id="L273" title="All 2 branches missed.">        if (maxPu == null) {</span>
+<span class="nc" id="L274">            return true;</span>
+        }
+<span class="nc" id="L276">        long used = promoRedemptionRepository.countByPromoCode_IdAndUserId(p.getId(), userId);</span>
+<span class="nc bnc" id="L277" title="All 2 branches missed.">        return used &lt; maxPu;</span>
+    }
+
+    public double applyDiscountToAmount(double baseAmountEur, PromoCode p) {
+<span class="nc bnc" id="L281" title="All 2 branches missed.">        if (p.effectiveDiscountType() == PromoDiscountType.FIXED_AMOUNT) {</span>
+<span class="nc bnc" id="L282" title="All 2 branches missed.">            double off = p.getDiscountAmount() != null ? p.getDiscountAmount() : 0d;</span>
+<span class="nc" id="L283">            return Math.max(0d, baseAmountEur - off);</span>
+        }
+<span class="nc bnc" id="L285" title="All 2 branches missed.">        double pct = p.getDiscountPercent() != null ? p.getDiscountPercent() : 0d;</span>
+<span class="nc" id="L286">        return baseAmountEur * (1d - pct / 100d);</span>
+    }
+
+    private static double round2(double v) {
+<span class="nc" id="L290">        return Math.round(v * 100d) / 100d;</span>
+    }
+
+    /**
+     * After successful payment: increment global uses and record per-user redemption.
+     */
+    @Transactional
+    public void recordUsage(PromoCode promoCode, Long userId, Long subscriptionId) {
+<span class="nc bnc" id="L298" title="All 2 branches missed.">        int uses = promoCode.getCurrentUses() == null ? 0 : promoCode.getCurrentUses();</span>
+<span class="nc" id="L299">        promoCode.setCurrentUses(uses + 1);</span>
+<span class="nc" id="L300">        promoCodeRepository.save(promoCode);</span>
+<span class="nc bnc" id="L301" title="All 2 branches missed.">        if (userId != null) {</span>
+<span class="nc" id="L302">            PromoRedemption r = PromoRedemption.builder()</span>
+<span class="nc" id="L303">                    .promoCode(promoCode)</span>
+<span class="nc" id="L304">                    .userId(userId)</span>
+<span class="nc" id="L305">                    .subscriptionId(subscriptionId)</span>
+<span class="nc" id="L306">                    .redeemedAt(LocalDateTime.now())</span>
+<span class="nc" id="L307">                    .build();</span>
+<span class="nc" id="L308">            promoRedemptionRepository.save(r);</span>
+        }
+<span class="nc" id="L310">    }</span>
+
+    /** @deprecated use {@link #recordUsage(PromoCode, Long, Long)} */
+    @Deprecated
+    @Transactional
+    public void recordUsage(PromoCode promoCode) {
+<span class="nc" id="L316">        recordUsage(promoCode, null, null);</span>
+<span class="nc" id="L317">    }</span>
+
+    public List&lt;PromoCode&gt; findAll() {
+<span class="nc" id="L320">        return promoCodeRepository.findAll();</span>
+    }
+
+    public Optional&lt;PromoCode&gt; findById(Long id) {
+<span class="nc" id="L324">        return promoCodeRepository.findById(id);</span>
+    }
+
+    public Optional&lt;PromoCode&gt; getActiveUnusedPromoForUser(Long userId) {
+<span class="nc" id="L328">        LocalDateTime now = LocalDateTime.now();</span>
+<span class="nc" id="L329">        List&lt;PromoCode&gt; personal = promoCodeRepository.findEligibleActiveForUser(userId, now);</span>
+<span class="nc" id="L330">        Optional&lt;PromoCode&gt; firstPersonal =</span>
+<span class="nc" id="L331">                personal.stream().filter(p -&gt; perUserLimitOk(p, userId)).findFirst();</span>
+<span class="nc bnc" id="L332" title="All 2 branches missed.">        if (firstPersonal.isPresent()) {</span>
+<span class="nc" id="L333">            return firstPersonal;</span>
+        }
+        /** System / seeded campaign owner id (see demo promos {@code createdByUserId = 1}). */
+<span class="nc" id="L336">        long systemOwnerId = 1L;</span>
+<span class="nc" id="L337">        List&lt;PromoCode&gt; system =</span>
+<span class="nc" id="L338">                promoCodeRepository.findEligibleSystemCampaigns(systemOwnerId, PromoAudience.ALL, now);</span>
+<span class="nc" id="L339">        return system.stream().filter(p -&gt; perUserLimitOk(p, userId)).findFirst();</span>
+    }
+
+    @Transactional
+    public Optional&lt;PromoCode&gt; generateBirthdayPromoForUser(Long userId) {
+<span class="nc" id="L344">        LocalDateTime thirtyDaysAgo = LocalDateTime.now().minusDays(30);</span>
+<span class="nc bnc" id="L345" title="All 2 branches missed.">        if (promoCodeRepository.existsByCreatedByUserIdSince(userId, thirtyDaysAgo)) {</span>
+<span class="nc" id="L346">            log.debug(&quot;Birthday promo skipped — user {} had a promo created in the last 30 days&quot;, userId);</span>
+<span class="nc" id="L347">            return Optional.empty();</span>
+        }
+
+<span class="nc" id="L350">        String code = BIRTHDAY_CODE_PREFIX + randomHex(8);</span>
+<span class="nc bnc" id="L351" title="All 2 branches missed.">        while (promoCodeRepository.findByCodeNormalized(code).isPresent()) {</span>
+<span class="nc" id="L352">            code = BIRTHDAY_CODE_PREFIX + randomHex(8);</span>
+        }
+
+<span class="nc" id="L355">        PromoCode p = new PromoCode();</span>
+<span class="nc" id="L356">        p.setCode(code);</span>
+<span class="nc" id="L357">        p.setDiscountType(PromoDiscountType.PERCENT);</span>
+<span class="nc" id="L358">        p.setDiscountPercent((double) BIRTHDAY_DISCOUNT_PERCENT);</span>
+<span class="nc" id="L359">        p.setCreatedByUserId(userId);</span>
+<span class="nc" id="L360">        p.setMaxUses(1);</span>
+<span class="nc" id="L361">        p.setCurrentUses(0);</span>
+<span class="nc" id="L362">        p.setExpirationDate(LocalDateTime.now().plusDays(BIRTHDAY_VALIDITY_DAYS));</span>
+<span class="nc" id="L363">        p.setActive(true);</span>
+<span class="nc" id="L364">        p.setApplicableAudience(PromoAudience.ALL);</span>
+<span class="nc" id="L365">        p.setMaxRedemptionsPerUser(1);</span>
+
+<span class="nc" id="L367">        PromoCode saved = promoCodeRepository.save(p);</span>
+<span class="nc" id="L368">        log.info(&quot;Birthday promo generated — code={} userId={}&quot;, saved.getCode(), userId);</span>
+<span class="nc" id="L369">        return Optional.of(saved);</span>
+    }
+
+    private String randomHex(int len) {
+<span class="nc" id="L373">        StringBuilder sb = new StringBuilder(len);</span>
+<span class="nc" id="L374">        String chars = &quot;0123456789ABCDEF&quot;;</span>
+<span class="nc bnc" id="L375" title="All 2 branches missed.">        for (int i = 0; i &lt; len; i++) {</span>
+<span class="nc" id="L376">            sb.append(chars.charAt(random.nextInt(chars.length())));</span>
+        }
+<span class="nc" id="L378">        return sb.toString();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

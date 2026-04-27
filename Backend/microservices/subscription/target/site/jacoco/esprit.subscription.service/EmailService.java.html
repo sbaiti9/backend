@@ -1,0 +1,399 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>EmailService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.service</a> &gt; <span class="el_source">EmailService.java</span></div><h1>EmailService.java</h1><pre class="source lang-java linenums">package esprit.subscription.service;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.stereotype.Service;
+
+import esprit.subscription.entity.UnlockChatSession;
+import jakarta.mail.MessagingException;
+import jakarta.mail.internet.MimeMessage;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
+
+@Service
+public class EmailService {
+
+    private final JavaMailSender mailSender;
+
+    @Value(&quot;${app.frontend.url:http://localhost:4200}&quot;)
+    private String frontendUrl;
+
+<span class="fc" id="L24">    public EmailService(JavaMailSender mailSender) {</span>
+<span class="fc" id="L25">        this.mailSender = mailSender;</span>
+<span class="fc" id="L26">    }</span>
+
+    public void sendHtmlEmail(String to, String subject, String htmlBody) {
+        try {
+<span class="nc" id="L30">            MimeMessage message = mailSender.createMimeMessage();</span>
+<span class="nc" id="L31">            MimeMessageHelper helper = new MimeMessageHelper(message, true, &quot;UTF-8&quot;);</span>
+<span class="nc" id="L32">            helper.setTo(to);</span>
+<span class="nc" id="L33">            helper.setSubject(subject);</span>
+<span class="nc" id="L34">            helper.setText(htmlBody, true);</span>
+<span class="nc" id="L35">            mailSender.send(message);</span>
+<span class="nc" id="L36">        } catch (MessagingException e) {</span>
+<span class="nc" id="L37">            throw new RuntimeException(&quot;Failed to send HTML email to &quot; + to, e);</span>
+<span class="nc" id="L38">        }</span>
+<span class="nc" id="L39">    }</span>
+
+    public void sendBirthdayPromoEmail(String companyEmail, String companyName, String promoCode) {
+<span class="nc" id="L42">        String subj = &quot;Joyeux anniversaire &quot; + companyName + &quot; — votre cadeau Skillio 🎁&quot;;</span>
+<span class="nc" id="L43">        String cta = frontendUrl.replaceAll(&quot;/$&quot;, &quot;&quot;) + &quot;/enterprise/subscription&quot;;</span>
+<span class="nc" id="L44">        String html = buildBirthdayPromoHtml(companyName, promoCode, cta);</span>
+<span class="nc" id="L45">        sendHtmlEmail(companyEmail, subj, html);</span>
+<span class="nc" id="L46">    }</span>
+
+    public void sendAutoRenewalEmail(String email, String companyName, String planName, LocalDateTime newEndDate) {
+<span class="nc" id="L49">        String subj = &quot;Votre abonnement Skillio a été renouvelé&quot;;</span>
+<span class="nc" id="L50">        String cta = frontendUrl.replaceAll(&quot;/$&quot;, &quot;&quot;) + &quot;/enterprise/subscription&quot;;</span>
+<span class="nc bnc" id="L51" title="All 2 branches missed.">        String endStr = newEndDate != null</span>
+<span class="nc" id="L52">                ? newEndDate.format(DateTimeFormatter.ofPattern(&quot;d MMMM yyyy&quot;, Locale.FRENCH))</span>
+<span class="nc" id="L53">                : &quot;&quot;;</span>
+<span class="nc" id="L54">        String html = buildAutoRenewalHtml(companyName, planName, endStr, cta);</span>
+<span class="nc" id="L55">        sendHtmlEmail(email, subj, html);</span>
+<span class="nc" id="L56">    }</span>
+
+    public void sendLoyaltyMilestoneEmail(
+            String to,
+            String displayName,
+            String tierName,
+            int milestoneMonth,
+            int discountPercent,
+            String promoCode
+    ) {
+<span class="nc" id="L66">        String cta = frontendUrl.replaceAll(&quot;/$&quot;, &quot;&quot;) + &quot;/enterprise/subscription&quot;;</span>
+<span class="nc" id="L67">        String subject = &quot;Bravo &quot; + displayName + &quot; — Palier &quot; + tierName + &quot; débloqué&quot;;</span>
+<span class="nc" id="L68">        String html = &quot;&quot;&quot;</span>
+                &lt;!DOCTYPE html&gt;&lt;html lang=&quot;fr&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;UTF-8&quot;&gt;&lt;/head&gt;
+                &lt;body style=&quot;margin:0;background:#f8fafc;font-family:Segoe UI,Arial,sans-serif;&quot;&gt;
+                &lt;table width=&quot;100%%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; style=&quot;padding:28px 12px;&quot;&gt;
+                &lt;tr&gt;&lt;td align=&quot;center&quot;&gt;
+                &lt;table width=&quot;620&quot; style=&quot;max-width:620px;background:#ffffff;border-radius:14px;border:1px solid #e2e8f0;&quot;&gt;
+                &lt;tr&gt;&lt;td style=&quot;padding:28px 34px;&quot;&gt;
+                &lt;h1 style=&quot;margin:0 0 10px;color:#0f172a;&quot;&gt;Félicitations %s&lt;/h1&gt;
+                &lt;p style=&quot;margin:0 0 14px;color:#475569;line-height:1.6;&quot;&gt;
+                Vous venez d’atteindre le palier &lt;strong&gt;%s&lt;/strong&gt; après &lt;strong&gt;%d mois&lt;/strong&gt; de fidélité.
+                &lt;/p&gt;
+                &lt;div style=&quot;border:2px dashed #2563eb;border-radius:12px;padding:18px;text-align:center;background:#eff6ff;&quot;&gt;
+                &lt;div style=&quot;font-size:11px;text-transform:uppercase;color:#64748b;&quot;&gt;Code promo fidélité&lt;/div&gt;
+                &lt;div style=&quot;font-family:Consolas,monospace;font-size:24px;font-weight:700;color:#1d4ed8;margin-top:6px;&quot;&gt;%s&lt;/div&gt;
+                &lt;div style=&quot;margin-top:8px;font-size:14px;color:#0f172a;&quot;&gt;%d%% de réduction&lt;/div&gt;
+                &lt;/div&gt;
+                &lt;p style=&quot;margin:14px 0 18px;color:#64748b;font-size:13px;&quot;&gt;
+                Ce code est personnel et utilisable une seule fois.
+                &lt;/p&gt;
+                &lt;a href=&quot;%s&quot; style=&quot;display:inline-block;background:#2563eb;color:#fff;text-decoration:none;font-weight:600;padding:12px 22px;border-radius:8px;&quot;&gt;
+                Utiliser mon avantage
+                &lt;/a&gt;
+                &lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/body&gt;&lt;/html&gt;
+<span class="nc" id="L91">                &quot;&quot;&quot;.formatted(</span>
+<span class="nc" id="L92">                escapeHtml(displayName),</span>
+<span class="nc" id="L93">                escapeHtml(tierName),</span>
+<span class="nc" id="L94">                milestoneMonth,</span>
+<span class="nc" id="L95">                escapeHtml(promoCode),</span>
+<span class="nc" id="L96">                discountPercent,</span>
+                cta
+        );
+<span class="nc" id="L99">        sendHtmlEmail(to, subject, html);</span>
+<span class="nc" id="L100">    }</span>
+
+    private String buildBirthdayPromoHtml(String companyName, String promoCode, String subscriptionUrl) {
+<span class="nc" id="L103">        return &quot;&quot;&quot;</span>
+                &lt;!DOCTYPE html&gt;&lt;html lang=&quot;fr&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;UTF-8&quot;&gt;&lt;/head&gt;
+                &lt;body style=&quot;margin:0;background:#0f172a;font-family:Segoe UI,Arial,sans-serif;&quot;&gt;
+                &lt;table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; style=&quot;padding:32px 12px;&quot;&gt;
+                &lt;tr&gt;&lt;td align=&quot;center&quot;&gt;
+                &lt;table width=&quot;600&quot; style=&quot;max-width:600px;background:#fff;border-radius:16px;overflow:hidden;&quot;&gt;
+                &lt;tr&gt;&lt;td style=&quot;background:linear-gradient(135deg,#6366f1,#8b5cf6);padding:28px;text-align:center;color:#fff;&quot;&gt;
+                &lt;div style=&quot;font-size:22px;font-weight:800;letter-spacing:0.06em;&quot;&gt;★ Skillio ★&lt;/div&gt;
+                &lt;div style=&quot;margin-top:8px;font-size:14px;opacity:0.95;&quot;&gt;✦ Joyeux anniversaire ✦&lt;/div&gt;
+                &lt;/td&gt;&lt;/tr&gt;
+                &lt;tr&gt;&lt;td style=&quot;padding:28px 32px;color:#0f172a;&quot;&gt;
+                &lt;p style=&quot;margin:0 0 16px;font-size:16px;line-height:1.5;&quot;&gt;Bonjour &lt;strong&gt;%s&lt;/strong&gt;, en ce jour spécial nous vous offrons &lt;strong&gt;20%%&lt;/strong&gt; de réduction sur votre prochain abonnement.&lt;/p&gt;
+                &lt;div style=&quot;border:2px dashed #6366f1;border-radius:12px;padding:20px;text-align:center;margin:20px 0;background:#f8fafc;&quot;&gt;
+                &lt;div style=&quot;font-size:11px;text-transform:uppercase;color:#64748b;letter-spacing:.1em;&quot;&gt;Votre code promo&lt;/div&gt;
+                &lt;div style=&quot;font-family:Consolas,Monaco,monospace;font-size:26px;font-weight:700;color:#0f172a;margin-top:8px;&quot;&gt;%s&lt;/div&gt;
+                &lt;/div&gt;
+                &lt;p style=&quot;margin:0 0 20px;font-size:13px;color:#64748b;&quot;&gt;Valable 30 jours — usage unique&lt;/p&gt;
+                &lt;div style=&quot;text-align:center;&quot;&gt;
+                &lt;a href=&quot;%s&quot; style=&quot;display:inline-block;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:10px;&quot;&gt;Utiliser mon code&lt;/a&gt;
+                &lt;/div&gt;
+                &lt;/td&gt;&lt;/tr&gt;
+                &lt;tr&gt;&lt;td style=&quot;padding:16px 32px 28px;font-size:12px;color:#94a3b8;text-align:center;&quot;&gt;L'équipe Skillio&lt;/td&gt;&lt;/tr&gt;
+                &lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/body&gt;&lt;/html&gt;
+<span class="nc" id="L126">                &quot;&quot;&quot;.formatted(escapeHtml(companyName), escapeHtml(promoCode), subscriptionUrl);</span>
+    }
+
+    private String buildAutoRenewalHtml(String companyName, String planName, String endDateStr, String subscriptionUrl) {
+<span class="nc" id="L130">        return &quot;&quot;&quot;</span>
+                &lt;!DOCTYPE html&gt;&lt;html lang=&quot;fr&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;UTF-8&quot;&gt;&lt;/head&gt;
+                &lt;body style=&quot;margin:0;background:#f1f5f9;font-family:Segoe UI,Arial,sans-serif;&quot;&gt;
+                &lt;table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; style=&quot;padding:32px 12px;&quot;&gt;
+                &lt;tr&gt;&lt;td align=&quot;center&quot;&gt;
+                &lt;table width=&quot;600&quot; style=&quot;max-width:600px;background:#fff;border-radius:12px;padding:28px 32px;&quot;&gt;
+                &lt;tr&gt;&lt;td&gt;
+                &lt;h1 style=&quot;margin:0 0 12px;font-size:20px;color:#0f172a;&quot;&gt;Votre abonnement Skillio a été renouvelé&lt;/h1&gt;
+                &lt;p style=&quot;color:#475569;line-height:1.6;&quot;&gt;Bonjour &lt;strong&gt;%s&lt;/strong&gt;,&lt;/p&gt;
+                &lt;p style=&quot;color:#475569;line-height:1.6;&quot;&gt;Votre abonnement &lt;strong&gt;%s&lt;/strong&gt; a bien été renouvelé. Prochaine échéance : &lt;strong&gt;%s&lt;/strong&gt;.&lt;/p&gt;
+                &lt;div style=&quot;text-align:center;margin-top:24px;&quot;&gt;
+                &lt;a href=&quot;%s&quot; style=&quot;display:inline-block;background:#2563eb;color:#fff;text-decoration:none;font-weight:600;padding:12px 24px;border-radius:8px;&quot;&gt;Gérer mon abonnement&lt;/a&gt;
+                &lt;/div&gt;
+                &lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/body&gt;&lt;/html&gt;
+<span class="nc" id="L144">                &quot;&quot;&quot;.formatted(escapeHtml(companyName), escapeHtml(planName), escapeHtml(endDateStr), subscriptionUrl);</span>
+    }
+
+    public void sendAiTargetingPromoEmail(String companyEmail, String companyName, String promoCode, int discountPercent) {
+<span class="nc" id="L148">        String subj = &quot;Skillio — votre code promo &quot; + discountPercent + &quot;%&quot;;</span>
+<span class="nc" id="L149">        String cta = frontendUrl.replaceAll(&quot;/$&quot;, &quot;&quot;) + &quot;/enterprise/subscription&quot;;</span>
+<span class="nc" id="L150">        String html = buildAiTargetingPromoHtml(companyName, promoCode, discountPercent, cta);</span>
+<span class="nc" id="L151">        sendHtmlEmail(companyEmail, subj, html);</span>
+<span class="nc" id="L152">    }</span>
+
+    private String buildAiTargetingPromoHtml(String companyName, String promoCode, int discountPercent, String subscriptionUrl) {
+<span class="nc" id="L155">        return &quot;&quot;&quot;</span>
+                &lt;!DOCTYPE html&gt;&lt;html lang=&quot;fr&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;UTF-8&quot;&gt;&lt;/head&gt;
+                &lt;body style=&quot;margin:0;background:#f8fafc;font-family:Segoe UI,Arial,sans-serif;&quot;&gt;
+                &lt;table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; style=&quot;padding:28px 12px;&quot;&gt;
+                &lt;tr&gt;&lt;td align=&quot;center&quot;&gt;
+                &lt;table width=&quot;600&quot; style=&quot;max-width:600px;background:#fff;border-radius:12px;border:1px solid #e2e8f0;&quot;&gt;
+                &lt;tr&gt;&lt;td style=&quot;padding:28px 32px;&quot;&gt;
+                &lt;p style=&quot;margin:0 0 12px;font-size:16px;color:#0f172a;&quot;&gt;Bonjour &lt;strong&gt;%s&lt;/strong&gt;,&lt;/p&gt;
+                &lt;p style=&quot;margin:0 0 16px;font-size:14px;color:#475569;line-height:1.6;&quot;&gt;Voici un code promotionnel personnalisé pour votre abonnement Skillio.&lt;/p&gt;
+                &lt;div style=&quot;border:2px dashed #7c3aed;border-radius:12px;padding:18px;text-align:center;background:#faf5ff;&quot;&gt;
+                &lt;div style=&quot;font-size:11px;text-transform:uppercase;color:#64748b;&quot;&gt;Code&lt;/div&gt;
+                &lt;div style=&quot;font-family:Consolas,monospace;font-size:24px;font-weight:700;color:#5b21b6;margin-top:6px;&quot;&gt;%s&lt;/div&gt;
+                &lt;div style=&quot;margin-top:8px;font-size:14px;color:#0f172a;&quot;&gt;&lt;strong&gt;%d%%&lt;/strong&gt; de réduction&lt;/div&gt;
+                &lt;/div&gt;
+                &lt;div style=&quot;text-align:center;margin-top:22px;&quot;&gt;
+                &lt;a href=&quot;%s&quot; style=&quot;display:inline-block;background:#7c3aed;color:#fff;text-decoration:none;font-weight:600;padding:12px 24px;border-radius:8px;&quot;&gt;Utiliser mon code&lt;/a&gt;
+                &lt;/div&gt;
+                &lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/body&gt;&lt;/html&gt;
+<span class="nc" id="L173">                &quot;&quot;&quot;.formatted(escapeHtml(companyName), escapeHtml(promoCode), discountPercent, subscriptionUrl);</span>
+    }
+
+    private static String escapeHtml(String s) {
+<span class="nc bnc" id="L177" title="All 2 branches missed.">        if (s == null) return &quot;&quot;;</span>
+<span class="nc" id="L178">        return s.replace(&quot;&amp;&quot;, &quot;&amp;amp;&quot;).replace(&quot;&lt;&quot;, &quot;&amp;lt;&quot;).replace(&quot;&gt;&quot;, &quot;&amp;gt;&quot;).replace(&quot;\&quot;&quot;, &quot;&amp;quot;&quot;);</span>
+    }
+
+    public void sendSimpleMail(String to, String subject, String body) {
+        try {
+<span class="nc" id="L183">            MimeMessage message = mailSender.createMimeMessage();</span>
+<span class="nc" id="L184">            MimeMessageHelper helper = new MimeMessageHelper(message, true, &quot;UTF-8&quot;);</span>
+<span class="nc" id="L185">            helper.setTo(to);</span>
+<span class="nc" id="L186">            helper.setSubject(subject);</span>
+<span class="nc" id="L187">            helper.setText(body, false);</span>
+<span class="nc" id="L188">            mailSender.send(message);</span>
+<span class="nc" id="L189">        } catch (MessagingException e) {</span>
+<span class="nc" id="L190">            throw new RuntimeException(&quot;Failed to send email to &quot; + to, e);</span>
+<span class="nc" id="L191">        }</span>
+<span class="nc" id="L192">    }</span>
+
+    /**
+     * Alerte admin lorsqu'une session unlock-chat passe en NEEDS_HUMAN_REVIEW (échec vérification présence / IA).
+     * Ne doit pas faire échouer le flux appelant — capturer les exceptions côté appelant si besoin.
+     */
+    public void sendHumanReviewAlertEmail(String adminEmail, UnlockChatSession session, long messageCount, String currentRotatingCode) {
+<span class="nc bnc" id="L199" title="All 4 branches missed.">        if (adminEmail == null || adminEmail.isBlank()) {</span>
+<span class="nc" id="L200">            return;</span>
+        }
+<span class="nc" id="L202">        Long sid = session.getId();</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">        String userId = session.getUserId() != null ? session.getUserId() : &quot;—&quot;;</span>
+<span class="nc bnc" id="L204" title="All 2 branches missed.">        String decision = session.getAiDecision() != null ? session.getAiDecision().name() : &quot;—&quot;;</span>
+<span class="nc bnc" id="L205" title="All 2 branches missed.">        int conf = session.getAiConfidence() != null ? session.getAiConfidence() : 0;</span>
+<span class="nc bnc" id="L206" title="All 2 branches missed.">        String reasoning = session.getAiReasoning() != null ? session.getAiReasoning() : &quot;—&quot;;</span>
+<span class="nc bnc" id="L207" title="All 2 branches missed.">        String analyzed = session.getAiAnalyzedAt() != null</span>
+<span class="nc" id="L208">                ? session.getAiAnalyzedAt().toString()</span>
+<span class="nc" id="L209">                : &quot;—&quot;;</span>
+<span class="nc" id="L210">        String linkBase = frontendUrl.replaceAll(&quot;/$&quot;, &quot;&quot;);</span>
+<span class="nc" id="L211">        String body = &quot;&quot;&quot;</span>
+                Un utilisateur a échoué à la vérification de présence automatique.
+                L'agent IA n'a pas pu confirmer son identité humaine.
+
+                Détails de la session:
+                - Session ID: %s
+                - Utilisateur ID: %s
+                - Décision IA: %s (%d%% confiance)
+                - Raisonnement: %s
+                - Analysé à: %s
+                - Nombre de messages: %d
+
+                Action requise: Connectez-vous au tableau de bord admin et examinez cette session manuellement.
+                Lien direct: %s/admin/unlock-chat?sessionId=%s
+
+                Code d'accès admin actuel: %s
+                &quot;&quot;&quot;
+<span class="nc" id="L228">                .formatted(</span>
+                        sid,
+                        userId,
+                        decision,
+<span class="nc" id="L232">                        conf,</span>
+                        reasoning,
+                        analyzed,
+<span class="nc" id="L235">                        messageCount,</span>
+                        linkBase,
+                        sid,
+<span class="nc bnc" id="L238" title="All 2 branches missed.">                        currentRotatingCode != null ? currentRotatingCode : &quot;—&quot;);</span>
+<span class="nc" id="L239">        String subject = &quot;🚨 [Skillio] Intervention requise — Session unlock-chat #&quot; + sid;</span>
+<span class="nc" id="L240">        sendSimpleMail(adminEmail, subject, body);</span>
+<span class="nc" id="L241">    }</span>
+
+    public void sendExpiryNotification(String to, String companyName, long daysLeft) {
+        try {
+<span class="nc" id="L245">            MimeMessage message = mailSender.createMimeMessage();</span>
+<span class="nc" id="L246">            MimeMessageHelper helper = new MimeMessageHelper(message, true, &quot;UTF-8&quot;);</span>
+<span class="nc bnc" id="L247" title="All 2 branches missed.">            String plural = daysLeft &gt; 1 ? &quot;s&quot; : &quot;&quot;;</span>
+<span class="nc" id="L248">            helper.setTo(to);</span>
+<span class="nc" id="L249">            helper.setSubject(&quot;\u23F3 Votre abonnement Skillio expire dans &quot; + daysLeft + &quot; jour&quot; + plural);</span>
+<span class="nc" id="L250">            helper.setText(buildExpiryHtml(companyName, daysLeft), true);</span>
+<span class="nc" id="L251">            mailSender.send(message);</span>
+<span class="nc" id="L252">        } catch (MessagingException e) {</span>
+<span class="nc" id="L253">            throw new RuntimeException(&quot;Failed to send expiry notification to &quot; + to, e);</span>
+<span class="nc" id="L254">        }</span>
+<span class="nc" id="L255">    }</span>
+
+    private String buildExpiryHtml(String companyName, long daysLeft) {
+
+        String accent, badgeBg, urgencyLabel, emoji;
+
+<span class="nc bnc" id="L261" title="All 2 branches missed.">        if (daysLeft == 1) {</span>
+<span class="nc" id="L262">            accent = &quot;#EF4444&quot;; badgeBg = &quot;#FEF2F2&quot;;</span>
+<span class="nc" id="L263">            urgencyLabel = &quot;URGENT &amp;mdash; Expire demain&amp;nbsp;!&quot;;</span>
+<span class="nc" id="L264">            emoji = &quot;&amp;#x1F6A8;&quot;;</span>
+<span class="nc bnc" id="L265" title="All 2 branches missed.">        } else if (daysLeft == 3) {</span>
+<span class="nc" id="L266">            accent = &quot;#F97316&quot;; badgeBg = &quot;#FFF7ED&quot;;</span>
+<span class="nc" id="L267">            urgencyLabel = &quot;Action requise&quot;;</span>
+<span class="nc" id="L268">            emoji = &quot;&amp;#x26A0;&amp;#xFE0F;&quot;;</span>
+        } else {
+<span class="nc" id="L270">            accent = &quot;#F59E0B&quot;; badgeBg = &quot;#FFFBEB&quot;;</span>
+<span class="nc" id="L271">            urgencyLabel = &quot;Rappel d&amp;rsquo;expiration&quot;;</span>
+<span class="nc" id="L272">            emoji = &quot;&amp;#x1F514;&quot;;</span>
+        }
+
+<span class="nc bnc" id="L275" title="All 2 branches missed.">        String plural = daysLeft &gt; 1 ? &quot;s&quot; : &quot;&quot;;</span>
+
+<span class="nc" id="L277">        StringBuilder sb = new StringBuilder();</span>
+
+<span class="nc" id="L279">        sb.append(&quot;&lt;!DOCTYPE html&gt;&lt;html lang=\&quot;fr\&quot;&gt;&lt;head&gt;&quot;)</span>
+<span class="nc" id="L280">                .append(&quot;&lt;meta charset=\&quot;UTF-8\&quot;&gt;&quot;)</span>
+<span class="nc" id="L281">                .append(&quot;&lt;meta name=\&quot;viewport\&quot; content=\&quot;width=device-width, initial-scale=1.0\&quot;&gt;&quot;)</span>
+<span class="nc" id="L282">                .append(&quot;&lt;title&gt;Expiration abonnement Skillio&lt;/title&gt;&quot;)</span>
+<span class="nc" id="L283">                .append(&quot;&lt;/head&gt;&quot;)</span>
+<span class="nc" id="L284">                .append(&quot;&lt;body style=\&quot;margin:0;padding:0;background-color:#F1F5F9;font-family:'Segoe UI',Arial,sans-serif;\&quot;&gt;&quot;)</span>
+
+<span class="nc" id="L286">                .append(&quot;&lt;table width=\&quot;100%\&quot; cellpadding=\&quot;0\&quot; cellspacing=\&quot;0\&quot; style=\&quot;background:#F1F5F9;padding:40px 16px;\&quot;&gt;&quot;)</span>
+<span class="nc" id="L287">                .append(&quot;&lt;tr&gt;&lt;td align=\&quot;center\&quot;&gt;&quot;)</span>
+
+                // Card
+<span class="nc" id="L290">                .append(&quot;&lt;table width=\&quot;600\&quot; cellpadding=\&quot;0\&quot; cellspacing=\&quot;0\&quot;&quot;)</span>
+<span class="nc" id="L291">                .append(&quot; style=\&quot;max-width:600px;width:100%;background:#FFFFFF;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);\&quot;&gt;&quot;)</span>
+
+                // Top bar
+<span class="nc" id="L294">                .append(&quot;&lt;tr&gt;&lt;td style=\&quot;height:4px;background:&quot;).append(accent).append(&quot;;\&quot;&gt;&lt;/td&gt;&lt;/tr&gt;&quot;)</span>
+
+                // Header row
+<span class="nc" id="L297">                .append(&quot;&lt;tr&gt;&lt;td style=\&quot;background:#FFFFFF;padding:32px 40px 24px;border-bottom:1px solid #F1F5F9;\&quot;&gt;&quot;)</span>
+<span class="nc" id="L298">                .append(&quot;&lt;table width=\&quot;100%\&quot; cellpadding=\&quot;0\&quot; cellspacing=\&quot;0\&quot;&gt;&lt;tr&gt;&quot;)</span>
+
+                // Logo
+<span class="nc" id="L301">                .append(&quot;&lt;td&gt;&lt;table cellpadding=\&quot;0\&quot; cellspacing=\&quot;0\&quot;&gt;&lt;tr&gt;&quot;)</span>
+<span class="nc" id="L302">                .append(&quot;&lt;td style=\&quot;background:linear-gradient(135deg,#3B82F6,#2563EB);border-radius:10px;width:40px;height:40px;text-align:center;vertical-align:middle;\&quot;&gt;&quot;)</span>
+<span class="nc" id="L303">                .append(&quot;&lt;span style=\&quot;color:#fff;font-size:18px;font-weight:800;line-height:40px;\&quot;&gt;S&lt;/span&gt;&lt;/td&gt;&quot;)</span>
+<span class="nc" id="L304">                .append(&quot;&lt;td style=\&quot;padding-left:12px;vertical-align:middle;\&quot;&gt;&quot;)</span>
+<span class="nc" id="L305">                .append(&quot;&lt;span style=\&quot;font-size:18px;font-weight:700;color:#0F172A;\&quot;&gt;Skillio&lt;/span&gt;&quot;)</span>
+<span class="nc" id="L306">                .append(&quot;&lt;span style=\&quot;display:inline-block;margin-left:8px;font-size:10px;font-weight:600;background:#EFF6FF;color:#2563EB;border:1px solid #BFDBFE;border-radius:4px;padding:1px 7px;\&quot;&gt;Platform&lt;/span&gt;&quot;)</span>
+<span class="nc" id="L307">                .append(&quot;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&quot;)</span>
+
+                // Badge
+<span class="nc" id="L310">                .append(&quot;&lt;td align=\&quot;right\&quot; style=\&quot;vertical-align:middle;\&quot;&gt;&quot;)</span>
+<span class="nc" id="L311">                .append(&quot;&lt;span style=\&quot;display:inline-block;background:&quot;).append(badgeBg).append(&quot;;color:&quot;).append(accent)</span>
+<span class="nc" id="L312">                .append(&quot;;font-size:11px;font-weight:700;text-transform:uppercase;padding:5px 12px;border-radius:20px;border:1px solid &quot;).append(accent).append(&quot;;\&quot;&gt;&quot;)</span>
+<span class="nc" id="L313">                .append(urgencyLabel).append(&quot;&lt;/span&gt;&quot;)</span>
+<span class="nc" id="L314">                .append(&quot;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&quot;)</span>
+
+                // Hero section
+<span class="nc" id="L317">                .append(&quot;&lt;tr&gt;&lt;td style=\&quot;padding:36px 40px 28px;\&quot;&gt;&quot;)</span>
+
+                // Icon
+<span class="nc" id="L320">                .append(&quot;&lt;div style=\&quot;text-align:center;margin-bottom:24px;\&quot;&gt;&quot;)</span>
+<span class="nc" id="L321">                .append(&quot;&lt;div style=\&quot;display:inline-block;width:72px;height:72px;background:&quot;).append(badgeBg)</span>
+<span class="nc" id="L322">                .append(&quot;;border-radius:50%;line-height:72px;font-size:36px;text-align:center;\&quot;&gt;&quot;).append(emoji).append(&quot;&lt;/div&gt;&lt;/div&gt;&quot;)</span>
+
+                // Title
+<span class="nc" id="L325">                .append(&quot;&lt;h1 style=\&quot;margin:0 0 12px;font-size:24px;font-weight:700;color:#0F172A;text-align:center;\&quot;&gt;&quot;)</span>
+<span class="nc" id="L326">                .append(&quot;Votre abonnement expire bient&amp;ocirc;t&lt;/h1&gt;&quot;)</span>
+
+                // Greeting
+<span class="nc" id="L329">                .append(&quot;&lt;p style=\&quot;margin:0 0 28px;font-size:15px;color:#64748B;text-align:center;line-height:1.6;\&quot;&gt;&quot;)</span>
+<span class="nc" id="L330">                .append(&quot;Bonjour &lt;strong style=\&quot;color:#0F172A;\&quot;&gt;&quot;).append(companyName).append(&quot;&lt;/strong&gt;,&lt;br&gt;&quot;)</span>
+<span class="nc" id="L331">                .append(&quot;nous vous informons que votre abonnement Skillio arrivera &amp;agrave; expiration.&lt;/p&gt;&quot;)</span>
+
+                // Countdown card
+<span class="nc" id="L334">                .append(&quot;&lt;table width=\&quot;100%\&quot; cellpadding=\&quot;0\&quot; cellspacing=\&quot;0\&quot;&quot;)</span>
+<span class="nc" id="L335">                .append(&quot; style=\&quot;background:&quot;).append(badgeBg).append(&quot;;border:2px solid &quot;).append(accent).append(&quot;;border-radius:12px;margin-bottom:28px;\&quot;&gt;&quot;)</span>
+<span class="nc" id="L336">                .append(&quot;&lt;tr&gt;&lt;td style=\&quot;padding:24px;text-align:center;\&quot;&gt;&quot;)</span>
+<span class="nc" id="L337">                .append(&quot;&lt;p style=\&quot;margin:0 0 4px;font-size:13px;font-weight:600;color:&quot;).append(accent).append(&quot;;letter-spacing:.08em;text-transform:uppercase;\&quot;&gt;Temps restant&lt;/p&gt;&quot;)</span>
+<span class="nc" id="L338">                .append(&quot;&lt;p style=\&quot;margin:0;font-size:48px;font-weight:800;color:&quot;).append(accent).append(&quot;;line-height:1;\&quot;&gt;&quot;)</span>
+<span class="nc" id="L339">                .append(daysLeft).append(&quot;&lt;span style=\&quot;font-size:20px;font-weight:600;\&quot;&gt; jour&quot;).append(plural).append(&quot;&lt;/span&gt;&lt;/p&gt;&quot;)</span>
+<span class="nc" id="L340">                .append(&quot;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&quot;)</span>
+
+                // Info table
+<span class="nc" id="L343">                .append(&quot;&lt;table width=\&quot;100%\&quot; cellpadding=\&quot;0\&quot; cellspacing=\&quot;0\&quot;&quot;)</span>
+<span class="nc" id="L344">                .append(&quot; style=\&quot;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;margin-bottom:28px;\&quot;&gt;&quot;)</span>
+                // row 1
+<span class="nc" id="L346">                .append(&quot;&lt;tr&gt;&lt;td style=\&quot;padding:14px 20px;border-bottom:1px solid #E2E8F0;\&quot;&gt;&quot;)</span>
+<span class="nc" id="L347">                .append(&quot;&lt;table width=\&quot;100%\&quot;&gt;&lt;tr&gt;&quot;)</span>
+<span class="nc" id="L348">                .append(&quot;&lt;td style=\&quot;font-size:13px;color:#64748B;\&quot;&gt;&amp;#x1F4CB; Compte&lt;/td&gt;&quot;)</span>
+<span class="nc" id="L349">                .append(&quot;&lt;td align=\&quot;right\&quot; style=\&quot;font-size:13px;color:#0F172A;font-weight:600;\&quot;&gt;&quot;).append(companyName).append(&quot;&lt;/td&gt;&quot;)</span>
+<span class="nc" id="L350">                .append(&quot;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&quot;)</span>
+                // row 2
+<span class="nc" id="L352">                .append(&quot;&lt;tr&gt;&lt;td style=\&quot;padding:14px 20px;border-bottom:1px solid #E2E8F0;\&quot;&gt;&quot;)</span>
+<span class="nc" id="L353">                .append(&quot;&lt;table width=\&quot;100%\&quot;&gt;&lt;tr&gt;&quot;)</span>
+<span class="nc" id="L354">                .append(&quot;&lt;td style=\&quot;font-size:13px;color:#64748B;\&quot;&gt;&amp;#x26A1; Statut&lt;/td&gt;&quot;)</span>
+<span class="nc" id="L355">                .append(&quot;&lt;td align=\&quot;right\&quot;&gt;&lt;span style=\&quot;background:#FEF9C3;color:#92400E;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;\&quot;&gt;&quot;)</span>
+<span class="nc" id="L356">                .append(&quot;Expire dans &quot;).append(daysLeft).append(&quot; jour&quot;).append(plural).append(&quot;&lt;/span&gt;&lt;/td&gt;&quot;)</span>
+<span class="nc" id="L357">                .append(&quot;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&quot;)</span>
+                // row 3
+<span class="nc" id="L359">                .append(&quot;&lt;tr&gt;&lt;td style=\&quot;padding:14px 20px;\&quot;&gt;&quot;)</span>
+<span class="nc" id="L360">                .append(&quot;&lt;table width=\&quot;100%\&quot;&gt;&lt;tr&gt;&quot;)</span>
+<span class="nc" id="L361">                .append(&quot;&lt;td style=\&quot;font-size:13px;color:#64748B;\&quot;&gt;&amp;#x1F6E1;&amp;#xFE0F; Service&lt;/td&gt;&quot;)</span>
+<span class="nc" id="L362">                .append(&quot;&lt;td align=\&quot;right\&quot; style=\&quot;font-size:13px;color:#0F172A;font-weight:600;\&quot;&gt;Skillio Platform&lt;/td&gt;&quot;)</span>
+<span class="nc" id="L363">                .append(&quot;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&quot;)</span>
+<span class="nc" id="L364">                .append(&quot;&lt;/table&gt;&quot;)</span>
+
+                // CTA
+<span class="nc" id="L367">                .append(&quot;&lt;table width=\&quot;100%\&quot; cellpadding=\&quot;0\&quot; cellspacing=\&quot;0\&quot;&gt;&lt;tr&gt;&lt;td align=\&quot;center\&quot;&gt;&quot;)</span>
+<span class="nc" id="L368">                .append(&quot;&lt;a href=\&quot;https://skillio.com/pricing\&quot;&quot;)</span>
+<span class="nc" id="L369">                .append(&quot; style=\&quot;display:inline-block;background:linear-gradient(135deg,#3B82F6,#2563EB);color:#FFFFFF;&quot;)</span>
+<span class="nc" id="L370">                .append(&quot;text-decoration:none;font-size:15px;font-weight:700;padding:14px 36px;border-radius:10px;\&quot;&gt;&quot;)</span>
+<span class="nc" id="L371">                .append(&quot;Renouveler mon abonnement &amp;rarr;&lt;/a&gt;&quot;)</span>
+<span class="nc" id="L372">                .append(&quot;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&quot;)</span>
+<span class="nc" id="L373">                .append(&quot;&lt;/td&gt;&lt;/tr&gt;&quot;)</span>
+
+                // Info banner
+<span class="nc" id="L376">                .append(&quot;&lt;tr&gt;&lt;td style=\&quot;background:#F8FAFC;border-top:1px solid #E2E8F0;padding:18px 40px;\&quot;&gt;&quot;)</span>
+<span class="nc" id="L377">                .append(&quot;&lt;p style=\&quot;margin:0;font-size:13px;color:#64748B;text-align:center;line-height:1.6;\&quot;&gt;&quot;)</span>
+<span class="nc" id="L378">                .append(&quot;&amp;#x1F4A1; &lt;strong style=\&quot;color:#475569;\&quot;&gt;Sans renouvellement&lt;/strong&gt;, &quot;)</span>
+<span class="nc" id="L379">                .append(&quot;votre acc&amp;egrave;s aux offres d&amp;rsquo;emploi, formations et outils Skillio sera suspendu &amp;agrave; l&amp;rsquo;expiration.&lt;/p&gt;&quot;)</span>
+<span class="nc" id="L380">                .append(&quot;&lt;/td&gt;&lt;/tr&gt;&quot;)</span>
+
+                // Footer
+<span class="nc" id="L383">                .append(&quot;&lt;tr&gt;&lt;td style=\&quot;padding:24px 40px;background:#FFFFFF;border-top:1px solid #F1F5F9;\&quot;&gt;&quot;)</span>
+<span class="nc" id="L384">                .append(&quot;&lt;table width=\&quot;100%\&quot; cellpadding=\&quot;0\&quot; cellspacing=\&quot;0\&quot;&gt;&lt;tr&gt;&quot;)</span>
+<span class="nc" id="L385">                .append(&quot;&lt;td style=\&quot;font-size:12px;color:#94A3B8;line-height:1.6;\&quot;&gt;&quot;)</span>
+<span class="nc" id="L386">                .append(&quot;Cet email a &amp;eacute;t&amp;eacute; envoy&amp;eacute; automatiquement par &lt;strong&gt;Skillio&lt;/strong&gt;.&lt;br&gt;&quot;)</span>
+<span class="nc" id="L387">                .append(&quot;Pour toute question : &lt;a href=\&quot;mailto:support@skillio.com\&quot; style=\&quot;color:#3B82F6;text-decoration:none;\&quot;&gt;support@skillio.com&lt;/a&gt;&quot;)</span>
+<span class="nc" id="L388">                .append(&quot;&lt;/td&gt;&quot;)</span>
+<span class="nc" id="L389">                .append(&quot;&lt;td align=\&quot;right\&quot; style=\&quot;vertical-align:top;font-size:11px;color:#CBD5E1;\&quot;&gt;&amp;copy; 2025 Skillio&lt;/td&gt;&quot;)</span>
+<span class="nc" id="L390">                .append(&quot;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&quot;)</span>
+
+<span class="nc" id="L392">                .append(&quot;&lt;/table&gt;&quot;) // /card</span>
+<span class="nc" id="L393">                .append(&quot;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&quot;) // /wrapper</span>
+<span class="nc" id="L394">                .append(&quot;&lt;/body&gt;&lt;/html&gt;&quot;);</span>
+
+<span class="nc" id="L396">        return sb.toString();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

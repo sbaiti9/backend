@@ -1,0 +1,561 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SubscriptionService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.service</a> &gt; <span class="el_source">SubscriptionService.java</span></div><h1>SubscriptionService.java</h1><pre class="source lang-java linenums">package esprit.subscription.service;
+
+import esprit.subscription.DTO.PlanRecommendationDto;
+import esprit.subscription.DTO.CompanyDto;
+import esprit.subscription.DTO.UserProfileDto;
+import esprit.subscription.client.EntrepriseClient;
+import esprit.subscription.client.UserClient;
+import esprit.subscription.entity.PaymentRecord;
+import esprit.subscription.entity.PricingPlan;
+import esprit.subscription.entity.Subscription;
+import esprit.subscription.entity.UserLoyaltyAccount;
+import esprit.subscription.repository.PaymentRecordRepository;
+import esprit.subscription.repository.SubscriptionRepository;
+import esprit.subscription.repository.UserLoyaltyAccountRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+
+@Service
+public class SubscriptionService {
+
+<span class="fc" id="L28">    private static final Logger log = LoggerFactory.getLogger(SubscriptionService.class);</span>
+
+    private final SubscriptionRepository subscriptionRepository;
+    private final EntrepriseClient entrepriseClient;
+    private final PricingPlanService pricingPlanService;
+    private final PaymentRecordRepository paymentRecordRepository;
+    private final EmailService emailService;
+    private final PlanAdvisorAiService planAdvisorAiService;
+    private final StripeSubscriptionSyncService stripeSubscriptionSyncService;
+    private final LoyaltyService loyaltyService;
+    private final UserLoyaltyAccountRepository loyaltyAccountRepository;
+    private final UserClient userClient;
+
+    public SubscriptionService(SubscriptionRepository subscriptionRepository,
+                                EntrepriseClient entrepriseClient,
+                                PricingPlanService pricingPlanService,
+                                PaymentRecordRepository paymentRecordRepository,
+                                EmailService emailService,
+                                PlanAdvisorAiService planAdvisorAiService,
+                                StripeSubscriptionSyncService stripeSubscriptionSyncService,
+                                LoyaltyService loyaltyService,
+                                UserLoyaltyAccountRepository loyaltyAccountRepository,
+<span class="fc" id="L50">                                UserClient userClient) {</span>
+<span class="fc" id="L51">        this.subscriptionRepository = subscriptionRepository;</span>
+<span class="fc" id="L52">        this.entrepriseClient = entrepriseClient;</span>
+<span class="fc" id="L53">        this.pricingPlanService = pricingPlanService;</span>
+<span class="fc" id="L54">        this.paymentRecordRepository = paymentRecordRepository;</span>
+<span class="fc" id="L55">        this.emailService = emailService;</span>
+<span class="fc" id="L56">        this.planAdvisorAiService = planAdvisorAiService;</span>
+<span class="fc" id="L57">        this.stripeSubscriptionSyncService = stripeSubscriptionSyncService;</span>
+<span class="fc" id="L58">        this.loyaltyService = loyaltyService;</span>
+<span class="fc" id="L59">        this.loyaltyAccountRepository = loyaltyAccountRepository;</span>
+<span class="fc" id="L60">        this.userClient = userClient;</span>
+<span class="fc" id="L61">    }</span>
+
+    public List&lt;Subscription&gt; findAll() {
+<span class="nc" id="L64">        return subscriptionRepository.findAll();</span>
+    }
+
+    public List&lt;Subscription&gt; findByUserId(Long userId) {
+<span class="nc" id="L68">        return subscriptionRepository.findByUserId(userId);</span>
+    }
+
+    /**
+     * Returns the current ACTIVE subscription for a user. Does NOT include EXPIRED.
+     */
+    public Optional&lt;Subscription&gt; findActiveSubscription(Long userId) {
+<span class="nc" id="L75">        return subscriptionRepository.findFirstByUserIdAndStatusIn(userId, List.of(&quot;ACTIVE&quot;));</span>
+    }
+
+    /**
+     * Latest subscription for status checks (ACTIVE, PAUSED, or EXPIRED).
+     */
+    public Optional&lt;Subscription&gt; findLatestSubscription(Long userId) {
+<span class="fc" id="L82">        return subscriptionRepository.findTopByUserIdAndStatusInOrderByStartDateDesc(</span>
+<span class="fc" id="L83">                userId, List.of(&quot;ACTIVE&quot;, &quot;PAUSED&quot;, &quot;EXPIRED&quot;));</span>
+    }
+
+    /** Billing UI: show ACTIVE or PAUSED subscription card. */
+    public Optional&lt;Subscription&gt; findActiveOrPausedForUser(Long userId) {
+<span class="nc" id="L88">        return subscriptionRepository.findTopByUserIdAndStatusInOrderByStartDateDesc(</span>
+<span class="nc" id="L89">                userId, List.of(&quot;ACTIVE&quot;, &quot;PAUSED&quot;));</span>
+    }
+
+    @Transactional(readOnly = true)
+    public Optional&lt;Subscription&gt; findById(Long id) {
+<span class="nc" id="L94">        return subscriptionRepository.findById(id);</span>
+    }
+
+    @Transactional
+    public Subscription attachStripeSubscriptionId(Long subscriptionId, String stripeSubscriptionId) {
+<span class="nc" id="L99">        Subscription s = subscriptionRepository.findById(subscriptionId)</span>
+<span class="nc" id="L100">                .orElseThrow(() -&gt; new IllegalArgumentException(&quot;Subscription not found: &quot; + subscriptionId));</span>
+<span class="nc bnc" id="L101" title="All 4 branches missed.">        if (stripeSubscriptionId != null &amp;&amp; !stripeSubscriptionId.isBlank()) {</span>
+<span class="nc" id="L102">            s.setStripeSubscriptionId(stripeSubscriptionId.trim());</span>
+        }
+<span class="nc" id="L104">        return subscriptionRepository.save(s);</span>
+    }
+
+    @Transactional
+    public Subscription subscribe(Subscription subscription) {
+<span class="fc bfc" id="L109" title="All 2 branches covered.">        for (Subscription oldSub : subscriptionRepository.findByUserId(subscription.getUserId())) {</span>
+<span class="pc bpc" id="L110" title="3 of 4 branches missed.">            if (&quot;ACTIVE&quot;.equalsIgnoreCase(oldSub.getStatus()) || &quot;PAUSED&quot;.equalsIgnoreCase(oldSub.getStatus())) {</span>
+<span class="fc" id="L111">                oldSub.setStatus(&quot;CANCELLED&quot;);</span>
+<span class="fc" id="L112">                oldSub.setEndDate(LocalDateTime.now());</span>
+<span class="fc" id="L113">                oldSub.setPauseEndAt(null);</span>
+<span class="fc" id="L114">                oldSub.setPausedAt(null);</span>
+<span class="fc" id="L115">                subscriptionRepository.save(oldSub);</span>
+<span class="fc" id="L116">                log.info(&quot;Previous subscription {} cancelled for userId={}&quot;, oldSub.getId(), subscription.getUserId());</span>
+            }
+<span class="fc" id="L118">        }</span>
+
+<span class="fc" id="L120">        subscription.setStatus(&quot;ACTIVE&quot;);</span>
+<span class="fc" id="L121">        subscription.setStartDate(LocalDateTime.now());</span>
+<span class="fc" id="L122">        subscription.setCreatedAt(LocalDateTime.now());</span>
+
+<span class="pc bpc" id="L124" title="1 of 2 branches missed.">        if (&quot;YEARLY&quot;.equalsIgnoreCase(subscription.getBillingCycle())) {</span>
+<span class="nc" id="L125">            subscription.setEndDate(LocalDateTime.now().plusYears(1));</span>
+        } else {
+<span class="fc" id="L127">            subscription.setEndDate(LocalDateTime.now().plusMonths(1));</span>
+        }
+
+<span class="fc" id="L130">        Subscription saved = subscriptionRepository.save(subscription);</span>
+<span class="fc" id="L131">        log.info(&quot;New subscription {} created for userId={} plan={} cycle={}&quot;,</span>
+<span class="fc" id="L132">                saved.getId(), saved.getUserId(),</span>
+<span class="pc bpc" id="L133" title="1 of 2 branches missed.">                saved.getPricingPlan() != null ? saved.getPricingPlan().getName() : &quot;?&quot;,</span>
+<span class="fc" id="L134">                saved.getBillingCycle());</span>
+<span class="fc" id="L135">        return saved;</span>
+    }
+
+    @Transactional
+    public Subscription cancel(Long id) {
+<span class="nc" id="L140">        Optional&lt;Subscription&gt; optionalSub = subscriptionRepository.findById(id);</span>
+<span class="nc bnc" id="L141" title="All 2 branches missed.">        if (optionalSub.isPresent()) {</span>
+<span class="nc" id="L142">            Subscription subscription = optionalSub.get();</span>
+<span class="nc" id="L143">            subscription.setStatus(&quot;CANCELLED&quot;);</span>
+<span class="nc" id="L144">            subscription.setEndDate(LocalDateTime.now());</span>
+<span class="nc" id="L145">            log.info(&quot;Subscription {} cancelled&quot;, id);</span>
+<span class="nc" id="L146">            return subscriptionRepository.save(subscription);</span>
+        }
+<span class="nc" id="L148">        log.warn(&quot;Cancel requested for unknown subscription id={}&quot;, id);</span>
+<span class="nc" id="L149">        return null;</span>
+    }
+
+    @Transactional
+    public Subscription toggleAutoRenew(Long id) {
+<span class="nc" id="L154">        Subscription sub = subscriptionRepository.findById(id)</span>
+<span class="nc" id="L155">                .orElseThrow(() -&gt; new RuntimeException(&quot;Subscription not found: &quot; + id));</span>
+<span class="nc bnc" id="L156" title="All 2 branches missed.">        sub.setAutoRenew(!sub.isAutoRenew());</span>
+<span class="nc" id="L157">        log.info(&quot;AutoRenew toggled to {} for subscription {}&quot;, sub.isAutoRenew(), id);</span>
+<span class="nc" id="L158">        return subscriptionRepository.save(sub);</span>
+    }
+
+    @Transactional
+    public Subscription setAutoRenew(Long id, boolean enabled) {
+<span class="nc" id="L163">        Subscription sub = subscriptionRepository.findById(id)</span>
+<span class="nc" id="L164">                .orElseThrow(() -&gt; new RuntimeException(&quot;Subscription not found: &quot; + id));</span>
+<span class="nc" id="L165">        sub.setAutoRenew(enabled);</span>
+<span class="nc" id="L166">        log.info(&quot;AutoRenew set to {} for subscription {}&quot;, enabled, id);</span>
+<span class="nc" id="L167">        return subscriptionRepository.save(sub);</span>
+    }
+
+    /**
+     * Renews subscriptions that expire today, {@code autoRenew=true}, {@code ACTIVE}.
+     */
+    @Transactional
+    public void processAutoRenewalsDueToday() {
+<span class="nc" id="L175">        LocalDate day = LocalDate.now();</span>
+<span class="nc" id="L176">        LocalDateTime start = day.atStartOfDay();</span>
+<span class="nc" id="L177">        LocalDateTime end = day.plusDays(1).atStartOfDay();</span>
+<span class="nc" id="L178">        List&lt;Subscription&gt; due = subscriptionRepository.findActiveAutoRenewEndingBetween(start, end);</span>
+<span class="nc bnc" id="L179" title="All 2 branches missed.">        for (Subscription old : due) {</span>
+<span class="nc bnc" id="L180" title="All 4 branches missed.">            if (!old.isAutoRenew() || old.getPricingPlan() == null) {</span>
+<span class="nc" id="L181">                continue;</span>
+            }
+            try {
+<span class="nc" id="L184">                Subscription neu = new Subscription();</span>
+<span class="nc" id="L185">                neu.setUserId(old.getUserId());</span>
+<span class="nc" id="L186">                neu.setPricingPlan(old.getPricingPlan());</span>
+<span class="nc" id="L187">                neu.setBillingCycle(old.getBillingCycle());</span>
+<span class="nc" id="L188">                neu.setUserRole(old.getUserRole());</span>
+<span class="nc" id="L189">                neu.setAutoRenew(true);</span>
+<span class="nc" id="L190">                Subscription created = subscribe(neu);</span>
+
+<span class="nc bnc" id="L192" title="All 2 branches missed.">                double amount = &quot;YEARLY&quot;.equalsIgnoreCase(old.getBillingCycle())</span>
+<span class="nc" id="L193">                        ? Optional.ofNullable(old.getPricingPlan().getYearlyPrice()).orElse(0.0)</span>
+<span class="nc" id="L194">                        : Optional.ofNullable(old.getPricingPlan().getMonthlyPrice()).orElse(0.0);</span>
+
+<span class="nc" id="L196">                PaymentRecord pr = new PaymentRecord();</span>
+<span class="nc" id="L197">                pr.setUserId(old.getUserId());</span>
+<span class="nc" id="L198">                pr.setSubscriptionId(created.getId());</span>
+<span class="nc" id="L199">                pr.setType(&quot;RENEWAL&quot;);</span>
+<span class="nc" id="L200">                pr.setAmount(amount);</span>
+<span class="nc" id="L201">                pr.setStatus(&quot;SUCCESS&quot;);</span>
+<span class="nc" id="L202">                pr.setExternalPaymentRef(&quot;AUTO_RENEW_&quot; + old.getId() + &quot;_&quot; + day);</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">                pr.setPlanName(old.getPricingPlan() != null ? old.getPricingPlan().getName() : null);</span>
+<span class="nc" id="L204">                pr.setBillingCycle(old.getBillingCycle());</span>
+<span class="nc" id="L205">                pr.setEndDate(created.getEndDate());</span>
+<span class="nc" id="L206">                paymentRecordRepository.save(pr);</span>
+
+                try {
+<span class="nc" id="L209">                    loyaltyService.applySuccessfulRenewal(created.getUserId(), 0);</span>
+<span class="nc" id="L210">                } catch (Exception ex) {</span>
+<span class="nc" id="L211">                    log.warn(&quot;Loyalty update failed during auto-renew for user {}: {}&quot;, created.getUserId(), ex.getMessage());</span>
+<span class="nc" id="L212">                }</span>
+
+<span class="nc" id="L214">                var company = entrepriseClient.getCompanyByUserId(created.getUserId());</span>
+<span class="nc bnc" id="L215" title="All 4 branches missed.">                if (company != null &amp;&amp; company.getEmail() != null) {</span>
+<span class="nc" id="L216">                    emailService.sendAutoRenewalEmail(</span>
+<span class="nc" id="L217">                            company.getEmail(),</span>
+<span class="nc bnc" id="L218" title="All 2 branches missed.">                            company.getName() != null ? company.getName() : &quot;Client&quot;,</span>
+<span class="nc" id="L219">                            old.getPricingPlan().getName(),</span>
+<span class="nc" id="L220">                            created.getEndDate());</span>
+                }
+<span class="nc" id="L222">                log.info(&quot;Auto-renew processed for userId={} newSubscriptionId={}&quot;, old.getUserId(), created.getId());</span>
+<span class="nc" id="L223">            } catch (Exception e) {</span>
+<span class="nc" id="L224">                log.error(&quot;Auto-renew failed for subscription id={}&quot;, old.getId(), e);</span>
+<span class="nc" id="L225">            }</span>
+<span class="nc" id="L226">        }</span>
+<span class="nc" id="L227">    }</span>
+
+    /**
+     * Stats + catalog baseline, then Groq personalization when {@code userId} is set.
+     */
+    public PlanRecommendationDto recommendPlanWithAi(String userRole, Long userId) {
+<span class="nc" id="L233">        PlanRecommendationDto baseline = recommendPlan(userRole);</span>
+<span class="nc bnc" id="L234" title="All 2 branches missed.">        if (userId == null) {</span>
+<span class="nc" id="L235">            return baseline;</span>
+        }
+<span class="nc" id="L237">        return planAdvisorAiService.advise(userRole, userId, baseline);</span>
+    }
+
+    public PlanRecommendationDto recommendPlan(String userRole) {
+<span class="nc" id="L241">        String role = normalizeUserRole(userRole);</span>
+<span class="nc" id="L242">        long totalForRole = subscriptionRepository.countActiveByUserRoleNormalized(role);</span>
+<span class="nc" id="L243">        List&lt;Object[]&gt; rows = subscriptionRepository.countActiveByPlanForRole(role);</span>
+
+<span class="nc bnc" id="L245" title="All 4 branches missed.">        if (rows.isEmpty() || totalForRole == 0) {</span>
+<span class="nc" id="L246">            rows = subscriptionRepository.countActivePlansWithIds();</span>
+<span class="nc" id="L247">            totalForRole = subscriptionRepository.countByStatus(&quot;ACTIVE&quot;);</span>
+        }
+
+<span class="nc bnc" id="L250" title="All 2 branches missed.">        if (rows.isEmpty()) {</span>
+<span class="nc" id="L251">            return buildRecommendationFromCatalog(role);</span>
+        }
+
+<span class="nc" id="L254">        Object[] top = rows.get(0);</span>
+<span class="nc" id="L255">        Long planId = (Long) top[0];</span>
+<span class="nc" id="L256">        String planName = (String) top[1];</span>
+<span class="nc" id="L257">        long cnt = (Long) top[2];</span>
+
+<span class="nc" id="L259">        Optional&lt;PricingPlan&gt; planOpt = pricingPlanService.findById(planId);</span>
+<span class="nc" id="L260">        PricingPlan plan = planOpt.orElse(null);</span>
+
+<span class="nc bnc" id="L262" title="All 2 branches missed.">        double adoption = totalForRole &gt; 0 ? (cnt * 100.0 / totalForRole) : 0.0;</span>
+<span class="nc bnc" id="L263" title="All 4 branches missed.">        boolean bestValue = plan != null &amp;&amp; isBestValuePlan(plan);</span>
+<span class="nc" id="L264">        boolean mostPopular = true;</span>
+
+<span class="nc" id="L266">        String reason = buildRecommendationReason(role, adoption, cnt, bestValue, plan);</span>
+
+<span class="nc" id="L268">        return PlanRecommendationDto.builder()</span>
+<span class="nc" id="L269">                .planId(planId)</span>
+<span class="nc" id="L270">                .planName(planName)</span>
+<span class="nc" id="L271">                .reason(reason)</span>
+<span class="nc" id="L272">                .activeUserCount((int) cnt)</span>
+<span class="nc" id="L273">                .adoptionRate(Math.round(adoption * 10.0) / 10.0)</span>
+<span class="nc" id="L274">                .mostPopular(mostPopular)</span>
+<span class="nc" id="L275">                .bestValue(bestValue)</span>
+<span class="nc" id="L276">                .build();</span>
+    }
+
+    private PlanRecommendationDto buildRecommendationFromCatalog(String role) {
+<span class="nc" id="L280">        List&lt;PricingPlan&gt; active = pricingPlanService.findAllActive();</span>
+<span class="nc bnc" id="L281" title="All 2 branches missed.">        if (active.isEmpty()) {</span>
+<span class="nc" id="L282">            return PlanRecommendationDto.builder()</span>
+<span class="nc" id="L283">                    .planId(null)</span>
+<span class="nc" id="L284">                    .planName(&quot;—&quot;)</span>
+<span class="nc" id="L285">                    .reason(&quot;Aucun plan actif — configurez les tarifs dans l’administration.&quot;)</span>
+<span class="nc" id="L286">                    .activeUserCount(0)</span>
+<span class="nc" id="L287">                    .adoptionRate(0)</span>
+<span class="nc" id="L288">                    .mostPopular(false)</span>
+<span class="nc" id="L289">                    .bestValue(false)</span>
+<span class="nc" id="L290">                    .build();</span>
+        }
+<span class="nc" id="L292">        PricingPlan p = active.stream().filter(pp -&gt; Boolean.TRUE.equals(pp.getHighlight()))</span>
+<span class="nc" id="L293">                .findFirst()</span>
+<span class="nc" id="L294">                .orElse(active.get(0));</span>
+<span class="nc" id="L295">        boolean bestValue = isBestValuePlan(p);</span>
+<span class="nc" id="L296">        String label = roleLabelFr(role);</span>
+<span class="nc" id="L297">        return PlanRecommendationDto.builder()</span>
+<span class="nc" id="L298">                .planId(p.getId())</span>
+<span class="nc" id="L299">                .planName(p.getName())</span>
+<span class="nc" id="L300">                .reason(&quot;Pas encore assez de données — suggestion basée sur le catalogue (&quot; + label + &quot;).&quot;</span>
+<span class="nc bnc" id="L301" title="All 2 branches missed.">                        + (Boolean.TRUE.equals(p.getHighlight()) ? &quot; · Recommandé par Skillio&quot; : &quot;&quot;)</span>
+<span class="nc bnc" id="L302" title="All 2 branches missed.">                        + (bestValue ? &quot; · Meilleur rapport qualité/prix&quot; : &quot;&quot;))</span>
+<span class="nc" id="L303">                .activeUserCount(0)</span>
+<span class="nc" id="L304">                .adoptionRate(0)</span>
+<span class="nc" id="L305">                .mostPopular(false)</span>
+<span class="nc" id="L306">                .bestValue(bestValue)</span>
+<span class="nc" id="L307">                .build();</span>
+    }
+
+    private static String normalizeUserRole(String userRole) {
+<span class="nc bnc" id="L311" title="All 4 branches missed.">        if (userRole == null || userRole.isBlank()) {</span>
+<span class="nc" id="L312">            return &quot;ENTERPRISE&quot;;</span>
+        }
+<span class="nc" id="L314">        String r = userRole.trim();</span>
+<span class="nc bnc" id="L315" title="All 2 branches missed.">        if (&quot;STUDENT&quot;.equalsIgnoreCase(r)) {</span>
+<span class="nc" id="L316">            return &quot;ETUDIANT&quot;;</span>
+        }
+<span class="nc" id="L318">        return r.toUpperCase();</span>
+    }
+
+    private static String roleLabelFr(String normalizedRole) {
+<span class="nc bnc" id="L322" title="All 4 branches missed.">        return switch (normalizedRole) {</span>
+<span class="nc" id="L323">            case &quot;ENTERPRISE&quot; -&gt; &quot;entreprises&quot;;</span>
+<span class="nc" id="L324">            case &quot;ETUDIANT&quot; -&gt; &quot;étudiants&quot;;</span>
+<span class="nc" id="L325">            case &quot;TUTEUR&quot; -&gt; &quot;tuteurs&quot;;</span>
+<span class="nc" id="L326">            default -&gt; &quot;utilisateurs&quot;;</span>
+        };
+    }
+
+    private static boolean isBestValuePlan(PricingPlan p) {
+<span class="nc bnc" id="L331" title="All 4 branches missed.">        if (p.getMonthlyPrice() == null || p.getYearlyPrice() == null) {</span>
+<span class="nc" id="L332">            return false;</span>
+        }
+<span class="nc" id="L334">        double monthlyEq = p.getYearlyPrice() / 12.0;</span>
+<span class="nc bnc" id="L335" title="All 2 branches missed.">        return monthlyEq &lt; p.getMonthlyPrice() * 0.9;</span>
+    }
+
+    private String buildRecommendationReason(String role, double adoption, long activeCount,
+                                            boolean bestValue, PricingPlan plan) {
+<span class="nc" id="L340">        String label = roleLabelFr(role);</span>
+<span class="nc" id="L341">        StringBuilder sb = new StringBuilder();</span>
+<span class="nc bnc" id="L342" title="All 2 branches missed.">        if (adoption &gt; 50) {</span>
+<span class="nc" id="L343">            sb.append(String.format(&quot;Choix de %.0f%% des utilisateurs actifs %s&quot;, adoption, label));</span>
+<span class="nc bnc" id="L344" title="All 2 branches missed.">        } else if (adoption &gt;= 20) {</span>
+<span class="nc" id="L345">            sb.append(String.format(&quot;Populaire parmi les %s — %d abonnés actifs&quot;, label, activeCount));</span>
+        } else {
+<span class="nc" id="L347">            sb.append(String.format(&quot;Plan fréquent pour les %s — %d abonnés actifs&quot;, label, activeCount));</span>
+        }
+<span class="nc bnc" id="L349" title="All 2 branches missed.">        if (bestValue) {</span>
+<span class="nc" id="L350">            sb.append(&quot; · Meilleur rapport qualité/prix&quot;);</span>
+        }
+<span class="nc bnc" id="L352" title="All 4 branches missed.">        if (plan != null &amp;&amp; Boolean.TRUE.equals(plan.getHighlight())) {</span>
+<span class="nc" id="L353">            sb.append(&quot; · Recommandé par Skillio&quot;);</span>
+        }
+<span class="nc" id="L355">        return sb.toString();</span>
+    }
+
+    @Transactional
+    public void delete(Long id) {
+<span class="nc" id="L360">        subscriptionRepository.deleteById(id);</span>
+<span class="nc" id="L361">    }</span>
+
+    public String checkSubscriptionStatus(Long userId) {
+<span class="fc" id="L364">        Optional&lt;Subscription&gt; optionalSub = findLatestSubscription(userId);</span>
+
+<span class="pc bpc" id="L366" title="1 of 2 branches missed.">        if (optionalSub.isEmpty()) {</span>
+<span class="nc" id="L367">            return &quot;NO_SUBSCRIPTION&quot;;</span>
+        }
+
+<span class="fc" id="L370">        Subscription subscription = optionalSub.get();</span>
+<span class="fc" id="L371">        LocalDateTime now = LocalDateTime.now();</span>
+
+        // If paused, we calculate remaining time and return PAUSED status immediately.
+<span class="pc bpc" id="L374" title="1 of 2 branches missed.">        if (&quot;PAUSED&quot;.equalsIgnoreCase(subscription.getStatus())) {</span>
+            // Note: We return PAUSED status, but logic below can be used if we need 
+            // to display &quot;Paused since X days with Y days left&quot;.
+<span class="nc" id="L377">            return &quot;PAUSED&quot;;</span>
+        }
+
+<span class="pc bpc" id="L380" title="1 of 2 branches missed.">        if (subscription.getEndDate() == null) {</span>
+<span class="nc" id="L381">            return &quot;ACTIVE&quot;;</span>
+        }
+
+<span class="fc" id="L384">        long daysLeft = java.time.Duration.between(now, subscription.getEndDate()).toDays();</span>
+
+<span class="pc bpc" id="L386" title="1 of 2 branches missed.">        if (daysLeft &lt; 0) {</span>
+<span class="fc" id="L387">            subscription.setStatus(&quot;EXPIRED&quot;);</span>
+<span class="fc" id="L388">            subscriptionRepository.save(subscription);</span>
+<span class="fc" id="L389">            return &quot;EXPIRED&quot;;</span>
+        }
+
+<span class="nc bnc" id="L392" title="All 2 branches missed.">        if (daysLeft &lt;= 7) {</span>
+<span class="nc" id="L393">            return &quot;EXPIRING_SOON&quot;;</span>
+        }
+
+<span class="nc" id="L396">        return &quot;ACTIVE&quot;;</span>
+    }
+
+    /**
+     * Pause like Netflix: access suspended until {@code pauseEndAt}.
+     * The endDate is ONLY shifted when the user RESUMES, based on the actual time spent in pause.
+     */
+    @Transactional
+    public Subscription pauseSubscription(Long subscriptionId, Long userId, int pauseDays) {
+<span class="pc bpc" id="L405" title="4 of 6 branches missed.">        if (pauseDays != 7 &amp;&amp; pauseDays != 14 &amp;&amp; pauseDays != 30) {</span>
+<span class="nc" id="L406">            throw new IllegalArgumentException(&quot;pauseDays must be 7, 14, or 30&quot;);</span>
+        }
+<span class="fc" id="L408">        Subscription sub = subscriptionRepository.findById(subscriptionId)</span>
+<span class="pc" id="L409">                .orElseThrow(() -&gt; new IllegalArgumentException(&quot;Subscription not found&quot;));</span>
+<span class="pc bpc" id="L410" title="1 of 2 branches missed.">        if (!sub.getUserId().equals(userId)) {</span>
+<span class="nc" id="L411">            throw new IllegalArgumentException(&quot;Subscription does not belong to this user&quot;);</span>
+        }
+<span class="pc bpc" id="L413" title="1 of 2 branches missed.">        if (!&quot;ACTIVE&quot;.equalsIgnoreCase(sub.getStatus())) {</span>
+<span class="nc" id="L414">            throw new IllegalStateException(&quot;Only ACTIVE subscriptions can be paused&quot;);</span>
+        }
+<span class="pc bpc" id="L416" title="1 of 2 branches missed.">        if (sub.getEndDate() == null) {</span>
+<span class="nc" id="L417">            throw new IllegalStateException(&quot;Subscription has no end date&quot;);</span>
+        }
+
+<span class="fc" id="L420">        LocalDateTime now = LocalDateTime.now();</span>
+<span class="fc" id="L421">        LocalDateTime pauseEndAt = now.plusDays(pauseDays);</span>
+
+<span class="fc" id="L423">        sub.setStatus(&quot;PAUSED&quot;);</span>
+<span class="fc" id="L424">        sub.setPausedAt(now);</span>
+<span class="fc" id="L425">        sub.setPauseEndAt(pauseEndAt);</span>
+        // We DO NOT shift the endDate here. We shift it in applyResume() based on actual time elapsed.
+
+<span class="fc" id="L428">        Subscription saved = subscriptionRepository.save(sub);</span>
+<span class="fc" id="L429">        stripeSubscriptionSyncService.pauseOnStripeIfPresent(sub.getStripeSubscriptionId(), pauseEndAt);</span>
+<span class="fc" id="L430">        log.info(&quot;Subscription {} paused for max {} days until {} (consumption frozen)&quot;, subscriptionId, pauseDays, pauseEndAt);</span>
+<span class="fc" id="L431">        return saved;</span>
+    }
+
+    @Transactional
+    public Subscription resumeSubscriptionEarly(Long subscriptionId, Long userId) {
+<span class="fc" id="L436">        Subscription sub = subscriptionRepository.findById(subscriptionId)</span>
+<span class="pc" id="L437">                .orElseThrow(() -&gt; new IllegalArgumentException(&quot;Subscription not found&quot;));</span>
+<span class="pc bpc" id="L438" title="1 of 2 branches missed.">        if (!sub.getUserId().equals(userId)) {</span>
+<span class="nc" id="L439">            throw new IllegalArgumentException(&quot;Subscription does not belong to this user&quot;);</span>
+        }
+<span class="pc bpc" id="L441" title="1 of 2 branches missed.">        if (!&quot;PAUSED&quot;.equalsIgnoreCase(sub.getStatus())) {</span>
+<span class="nc" id="L442">            throw new IllegalStateException(&quot;Subscription is not paused&quot;);</span>
+        }
+<span class="fc" id="L444">        return applyResume(sub);</span>
+    }
+
+    @Transactional
+    public void processPausedSubscriptionsResumeDue() {
+<span class="fc" id="L449">        LocalDateTime now = LocalDateTime.now();</span>
+<span class="fc bfc" id="L450" title="All 2 branches covered.">        for (Subscription sub : subscriptionRepository.findPausedDueToResume(now)) {</span>
+            try {
+<span class="fc" id="L452">                applyResume(sub);</span>
+<span class="fc" id="L453">                log.info(&quot;Auto-resumed subscription {} after pause&quot;, sub.getId());</span>
+<span class="nc" id="L454">            } catch (Exception e) {</span>
+<span class="nc" id="L455">                log.warn(&quot;Failed to auto-resume subscription {}: {}&quot;, sub.getId(), e.getMessage());</span>
+<span class="fc" id="L456">            }</span>
+<span class="fc" id="L457">        }</span>
+<span class="fc" id="L458">    }</span>
+
+    private Subscription applyResume(Subscription sub) {
+<span class="fc" id="L461">        LocalDateTime now = LocalDateTime.now();</span>
+        
+        // Calculate the actual time the subscription was frozen
+<span class="pc bpc" id="L464" title="3 of 4 branches missed.">        if (sub.getPausedAt() != null &amp;&amp; sub.getEndDate() != null) {</span>
+<span class="nc" id="L465">            java.time.Duration actualPauseDuration = java.time.Duration.between(sub.getPausedAt(), now);</span>
+            // We shift the expiration date forward by the exact precision of time the user was paused
+<span class="nc" id="L467">            sub.setEndDate(sub.getEndDate().plus(actualPauseDuration));</span>
+<span class="nc" id="L468">            log.info(&quot;Subscription {} resumed. EndDate shifted forward by duration: {}.&quot;, sub.getId(), actualPauseDuration);</span>
+        }
+
+<span class="fc" id="L471">        sub.setStatus(&quot;ACTIVE&quot;);</span>
+<span class="fc" id="L472">        sub.setPauseEndAt(null);</span>
+<span class="fc" id="L473">        sub.setPausedAt(null);</span>
+        
+<span class="fc" id="L475">        Subscription saved = subscriptionRepository.save(sub);</span>
+<span class="fc" id="L476">        stripeSubscriptionSyncService.resumeOnStripeIfPresent(sub.getStripeSubscriptionId());</span>
+<span class="fc" id="L477">        return saved;</span>
+    }
+
+    // ── Stats ──────────────────────────────────────────────────────────────────
+
+    public long countAll() {
+<span class="nc" id="L483">        return subscriptionRepository.count();</span>
+    }
+
+    public long countByStatus(String status) {
+<span class="nc" id="L487">        return subscriptionRepository.countByStatus(status);</span>
+    }
+
+    public List&lt;Object[]&gt; countByBillingCycle() {
+<span class="nc" id="L491">        return subscriptionRepository.countByBillingCycle();</span>
+    }
+
+    public List&lt;Object[]&gt; countByUserRole() {
+<span class="nc" id="L495">        return subscriptionRepository.countByUserRole();</span>
+    }
+
+    public List&lt;Object[]&gt; countGroupByStatus() {
+<span class="nc" id="L499">        return subscriptionRepository.countGroupByStatus();</span>
+    }
+
+    public List&lt;Object[]&gt; countByPlanName() {
+<span class="nc" id="L503">        return subscriptionRepository.countByPlanName();</span>
+    }
+
+    public List&lt;Object[]&gt; countActiveByPlanName() {
+<span class="nc" id="L507">        return subscriptionRepository.countActiveByPlanName();</span>
+    }
+
+    public Double calculateMonthlyRevenue() {
+<span class="nc" id="L511">        Double result = subscriptionRepository.calculateMonthlyRevenue();</span>
+<span class="nc bnc" id="L512" title="All 2 branches missed.">        return result != null ? result : 0.0;</span>
+    }
+
+    public Double calculateYearlyRevenue() {
+<span class="nc" id="L516">        Double result = subscriptionRepository.calculateYearlyRevenue();</span>
+<span class="nc bnc" id="L517" title="All 2 branches missed.">        return result != null ? result : 0.0;</span>
+    }
+
+    @Transactional(readOnly = true)
+    public Optional&lt;PaymentRecord&gt; findPaymentByExternalRef(String externalRef) {
+<span class="nc" id="L522">        return paymentRecordRepository.findFirstByExternalPaymentRefAndStatus(externalRef, &quot;SUCCESS&quot;);</span>
+    }
+
+    @Transactional
+    public void recordSuccessfulCheckoutPayment(
+            Long userId,
+            Long subscriptionId,
+            String externalSessionId,
+            String planName,
+            String billingCycle,
+            LocalDateTime endDate
+    ) {
+<span class="nc" id="L534">        PaymentRecord pr = new PaymentRecord();</span>
+<span class="nc" id="L535">        pr.setUserId(userId);</span>
+<span class="nc" id="L536">        pr.setSubscriptionId(subscriptionId);</span>
+<span class="nc" id="L537">        pr.setType(&quot;CHECKOUT&quot;);</span>
+<span class="nc" id="L538">        pr.setStatus(&quot;SUCCESS&quot;);</span>
+<span class="nc" id="L539">        pr.setExternalPaymentRef(externalSessionId);</span>
+<span class="nc" id="L540">        pr.setPlanName(planName);</span>
+<span class="nc" id="L541">        pr.setBillingCycle(billingCycle);</span>
+<span class="nc" id="L542">        pr.setEndDate(endDate);</span>
+<span class="nc" id="L543">        paymentRecordRepository.save(pr);</span>
+<span class="nc" id="L544">    }</span>
+
+    @Transactional
+    public void saveLoyaltyAccount(UserLoyaltyAccount account) {
+<span class="nc" id="L548">        loyaltyAccountRepository.save(account);</span>
+<span class="nc" id="L549">    }</span>
+
+    @Transactional(readOnly = true)
+    public UserProfileDto getUserProfile(Long userId) {
+<span class="nc" id="L553">        return userClient.getUserById(userId);</span>
+    }
+
+    @Transactional(readOnly = true)
+    public CompanyDto getCompanyProfile(Long userId) {
+<span class="nc" id="L558">        return entrepriseClient.getCompanyByUserId(userId);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

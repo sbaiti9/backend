@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>UserBlockController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.controller</a> &gt; <span class="el_source">UserBlockController.java</span></div><h1>UserBlockController.java</h1><pre class="source lang-java linenums">package esprit.subscription.controller;
+
+import esprit.subscription.DTO.liveness.*;
+import esprit.subscription.entity.BlockStatus;
+import esprit.subscription.entity.UserBlock;
+import esprit.subscription.service.AdminReVerificationService;
+import esprit.subscription.service.UserBlockService;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping({&quot;/api/liveness/block&quot;, &quot;/sub/liveness/block&quot;})
+public class UserBlockController {
+
+    private final UserBlockService userBlockService;
+    private final AdminReVerificationService adminReVerificationService;
+
+    public UserBlockController(UserBlockService userBlockService,
+<span class="fc" id="L20">                               AdminReVerificationService adminReVerificationService) {</span>
+<span class="fc" id="L21">        this.userBlockService = userBlockService;</span>
+<span class="fc" id="L22">        this.adminReVerificationService = adminReVerificationService;</span>
+<span class="fc" id="L23">    }</span>
+
+    @PostMapping(&quot;/request-unlock/{userId}&quot;)
+    public ResponseEntity&lt;RequestUnlockResponse&gt; requestUnlock(@PathVariable String userId) {
+<span class="nc" id="L27">        UserBlock ub = userBlockService.requestUnlock(userId);</span>
+<span class="nc" id="L28">        return ResponseEntity.ok(RequestUnlockResponse.builder()</span>
+<span class="nc" id="L29">                .status(&quot;ok&quot;)</span>
+<span class="nc" id="L30">                .message(&quot;Demande enregistrée&quot;)</span>
+<span class="nc" id="L31">                .blockId(ub.getId())</span>
+<span class="nc" id="L32">                .blockStatus(ub.getStatus())</span>
+<span class="nc" id="L33">                .build());</span>
+    }
+
+    @GetMapping(&quot;/status/{userId}&quot;)
+    public ResponseEntity&lt;UserBlockStatusResponse&gt; status(@PathVariable String userId) {
+<span class="nc" id="L38">        return userBlockService.findByUserId(userId)</span>
+<span class="nc" id="L39">                .map(ub -&gt; ResponseEntity.ok(UserBlockStatusResponse.builder()</span>
+<span class="nc bnc" id="L40" title="All 4 branches missed.">                        .blocked(ub.getStatus() == BlockStatus.BLOCKED || ub.getStatus() == BlockStatus.PENDING_REVIEW)</span>
+<span class="nc" id="L41">                        .status(ub.getStatus())</span>
+<span class="nc" id="L42">                        .reason(ub.getBlockReason())</span>
+<span class="nc" id="L43">                        .blockId(ub.getId())</span>
+<span class="nc" id="L44">                        .build()))</span>
+<span class="nc" id="L45">                .orElseGet(() -&gt; ResponseEntity.ok(UserBlockStatusResponse.builder()</span>
+<span class="nc" id="L46">                        .blocked(false)</span>
+<span class="nc" id="L47">                        .status(null)</span>
+<span class="nc" id="L48">                        .reason(null)</span>
+<span class="nc" id="L49">                        .blockId(null)</span>
+<span class="nc" id="L50">                        .build()));</span>
+    }
+
+    @PostMapping(&quot;/verify-token&quot;)
+    public ResponseEntity&lt;VerifyTokenResponse&gt; verifyToken(@RequestBody VerifyTokenRequest body) {
+<span class="nc" id="L55">        boolean valid = adminReVerificationService.validateReVerificationToken(</span>
+<span class="nc" id="L56">                body.getToken(), body.getUserId());</span>
+<span class="nc" id="L57">        return ResponseEntity.ok(VerifyTokenResponse.builder().valid(valid).build());</span>
+    }
+
+    @PostMapping(&quot;/reverification-complete&quot;)
+    public ResponseEntity&lt;VerifyTokenResponse&gt; reverificationComplete(@RequestBody VerifyTokenRequest body) {
+<span class="nc" id="L62">        boolean ok = adminReVerificationService.completeReVerification(body.getToken(), body.getUserId());</span>
+<span class="nc" id="L63">        return ResponseEntity.ok(VerifyTokenResponse.builder().valid(ok).build());</span>
+    }
+
+    /**
+     * Client-only permanent block (timeout, face block, etc.) when no server verify occurred.
+     */
+    @PostMapping(&quot;/register&quot;)
+    public ResponseEntity&lt;RequestUnlockResponse&gt; registerClientBlock(
+            @RequestBody ClientBlockRegisterRequest body,
+            HttpServletRequest request) {
+<span class="nc bnc" id="L73" title="All 4 branches missed.">        if (body.getUserId() == null || body.getUserId().isBlank()) {</span>
+<span class="nc" id="L74">            return ResponseEntity.badRequest().build();</span>
+        }
+<span class="nc" id="L76">        UserBlock ub = userBlockService.blockUser(</span>
+<span class="nc" id="L77">                body.getUserId(),</span>
+<span class="nc bnc" id="L78" title="All 2 branches missed.">                body.getReason() != null ? body.getReason() : &quot;Blocage côté client&quot;,</span>
+<span class="nc" id="L79">                body.getSessionPayload());</span>
+<span class="nc" id="L80">        return ResponseEntity.ok(RequestUnlockResponse.builder()</span>
+<span class="nc" id="L81">                .status(&quot;registered&quot;)</span>
+<span class="nc" id="L82">                .message(&quot;Blocage enregistré&quot;)</span>
+<span class="nc" id="L83">                .blockId(ub.getId())</span>
+<span class="nc" id="L84">                .blockStatus(ub.getStatus())</span>
+<span class="nc" id="L85">                .build());</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>FraudAlert.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.entity</a> &gt; <span class="el_source">FraudAlert.java</span></div><h1>FraudAlert.java</h1><pre class="source lang-java linenums">package esprit.subscription.entity;
+
+import jakarta.persistence.*;
+import lombok.*;
+
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = &quot;fraud_alerts&quot;)
+@Getter
+<span class="pc" id="L11">@Setter</span>
+<span class="fc" id="L12">@NoArgsConstructor</span>
+<span class="nc" id="L13">@AllArgsConstructor</span>
+public class FraudAlert {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+<span class="nc" id="L18">    private Long id;</span>
+
+    @Column(nullable = false)
+<span class="fc" id="L21">    private Long userId;</span>
+
+    @Column(nullable = false)
+<span class="fc" id="L24">    private String alertType; // MULTIPLE_PLANS, RAPID_CHANGE, PROMO_ABUSE, etc.</span>
+
+    @Column(nullable = false)
+<span class="fc" id="L27">    private String riskLevel; // HIGH, MEDIUM, LOW</span>
+
+    @Column(length = 1000)
+<span class="nc" id="L30">    private String details;</span>
+
+    @Column(nullable = false)
+<span class="nc" id="L33">    private LocalDateTime detectedAt;</span>
+
+<span class="pc" id="L35">    private boolean resolved = false;</span>
+
+    // Snapshot fields populated at detection time
+<span class="nc" id="L38">    private String userRole;           // role at alert time (STUDENT / TRAINER / ENTERPRISE)</span>
+<span class="nc" id="L39">    private String planName;           // snapshot of plan name at detection</span>
+<span class="nc" id="L40">    private String billingCycle;       // MONTHLY or YEARLY at detection</span>
+<span class="nc" id="L41">    private String subscriptionStatus; // subscription status at detection</span>
+
+    @PrePersist
+    public void prePersist() {
+<span class="nc bnc" id="L45" title="All 2 branches missed.">        if (detectedAt == null) {</span>
+<span class="nc" id="L46">            detectedAt = LocalDateTime.now();</span>
+        }
+<span class="nc" id="L48">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

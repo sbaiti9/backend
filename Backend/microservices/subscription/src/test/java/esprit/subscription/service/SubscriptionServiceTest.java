@@ -116,7 +116,8 @@ class SubscriptionServiceTest {
         assertThat(out.getStatus()).isEqualToIgnoringCase("PAUSED");
         assertThat(out.getPausedAt()).isNotNull();
         assertThat(out.getPauseEndAt()).isNotNull();
-        assertThat(out.getEndDate()).isEqualTo(end.plusDays(14));
+        // Pause does NOT shift endDate immediately; it is shifted on resume based on actual pause duration.
+        assertThat(out.getEndDate()).isEqualTo(end);
         verify(stripeSubscriptionSyncService).pauseOnStripeIfPresent(isNull(), any(LocalDateTime.class));
     }
 

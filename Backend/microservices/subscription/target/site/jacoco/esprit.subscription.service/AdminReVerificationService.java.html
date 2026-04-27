@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AdminReVerificationService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.service</a> &gt; <span class="el_source">AdminReVerificationService.java</span></div><h1>AdminReVerificationService.java</h1><pre class="source lang-java linenums">package esprit.subscription.service;
+
+import esprit.subscription.entity.BlockStatus;
+import esprit.subscription.entity.UserBlock;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.time.LocalDateTime;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
+@Service
+public class AdminReVerificationService {
+
+    private static final int TTL_MINUTES = 15;
+
+<span class="nc" id="L20">    public record ReVerificationRequest(</span>
+            String userId,
+            String token,
+            Long blockId,
+            LocalDateTime createdAt,
+            LocalDateTime expiresAt,
+            boolean used
+    ) {}
+
+<span class="fc" id="L29">    private final Map&lt;String, ReVerificationRequest&gt; byToken = new ConcurrentHashMap&lt;&gt;();</span>
+    private final UserBlockService userBlockService;
+
+<span class="fc" id="L32">    public AdminReVerificationService(UserBlockService userBlockService) {</span>
+<span class="fc" id="L33">        this.userBlockService = userBlockService;</span>
+<span class="fc" id="L34">    }</span>
+
+    /**
+     * Admin triggers re-check: ensure block is in review pipeline and return a one-time token.
+     */
+    @Transactional
+    public ReVerificationTokenResult requireReVerification(Long blockId, String adminUsername) {
+<span class="nc" id="L41">        UserBlock ub = userBlockService.getByIdOrThrow(blockId);</span>
+<span class="nc bnc" id="L42" title="All 4 branches missed.">        if (ub.getStatus() != BlockStatus.PENDING_REVIEW &amp;&amp; ub.getStatus() != BlockStatus.BLOCKED) {</span>
+<span class="nc" id="L43">            throw new ResponseStatusException(HttpStatus.CONFLICT, &quot;Statut de blocage incompatible&quot;);</span>
+        }
+<span class="nc bnc" id="L45" title="All 2 branches missed.">        if (ub.getStatus() == BlockStatus.BLOCKED) {</span>
+<span class="nc" id="L46">            ub.setStatus(BlockStatus.PENDING_REVIEW);</span>
+<span class="nc" id="L47">            userBlockService.save(ub);</span>
+        }
+<span class="nc" id="L49">        String token = UUID.randomUUID().toString();</span>
+<span class="nc" id="L50">        LocalDateTime now = LocalDateTime.now();</span>
+<span class="nc" id="L51">        LocalDateTime exp = now.plusMinutes(TTL_MINUTES);</span>
+<span class="nc" id="L52">        ReVerificationRequest req = new ReVerificationRequest(</span>
+<span class="nc" id="L53">                ub.getUserId(),</span>
+                token,
+                blockId,
+                now,
+                exp,
+                false
+        );
+<span class="nc" id="L60">        byToken.put(token, req);</span>
+<span class="nc" id="L61">        return new ReVerificationTokenResult(token, exp);</span>
+    }
+
+<span class="nc" id="L64">    public record ReVerificationTokenResult(String token, LocalDateTime expiresAt) {}</span>
+
+    /**
+     * Validates token for starting the client flow (does not consume — user may refresh precheck).
+     */
+    public boolean validateReVerificationToken(String token, String userId) {
+<span class="nc bnc" id="L70" title="All 8 branches missed.">        if (token == null || token.isBlank() || userId == null || userId.isBlank()) return false;</span>
+<span class="nc" id="L71">        ReVerificationRequest r = byToken.get(token.trim());</span>
+<span class="nc bnc" id="L72" title="All 2 branches missed.">        if (r == null) return false;</span>
+<span class="nc bnc" id="L73" title="All 2 branches missed.">        if (r.used()) return false;</span>
+<span class="nc bnc" id="L74" title="All 2 branches missed.">        if (!r.userId().equals(userId.trim())) return false;</span>
+<span class="nc bnc" id="L75" title="All 2 branches missed.">        return !LocalDateTime.now().isAfter(r.expiresAt());</span>
+    }
+
+    /**
+     * Marks token used after successful liveness re-verification.
+     */
+    @Transactional
+    public boolean completeReVerification(String token, String userId) {
+<span class="nc bnc" id="L83" title="All 8 branches missed.">        if (token == null || token.isBlank() || userId == null || userId.isBlank()) return false;</span>
+<span class="nc" id="L84">        ReVerificationRequest r = byToken.get(token.trim());</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">        if (r == null) return false;</span>
+<span class="nc bnc" id="L86" title="All 2 branches missed.">        if (r.used()) return false;</span>
+<span class="nc bnc" id="L87" title="All 2 branches missed.">        if (!r.userId().equals(userId.trim())) return false;</span>
+<span class="nc bnc" id="L88" title="All 2 branches missed.">        if (LocalDateTime.now().isAfter(r.expiresAt())) return false;</span>
+
+<span class="nc" id="L90">        byToken.put(token.trim(), new ReVerificationRequest(</span>
+<span class="nc" id="L91">                r.userId(), r.token(), r.blockId(), r.createdAt(), r.expiresAt(), true));</span>
+
+<span class="nc" id="L93">        UserBlock ub = userBlockService.getByIdOrThrow(r.blockId());</span>
+<span class="nc" id="L94">        ub.setReVerificationPassedAt(LocalDateTime.now());</span>
+<span class="nc" id="L95">        userBlockService.save(ub);</span>
+<span class="nc" id="L96">        return true;</span>
+    }
+
+    /** Spec-compatible: validate and consume in one call (optional). */
+    public boolean validateAndConsumeToken(String token, String userId) {
+<span class="nc" id="L101">        return completeReVerification(token, userId);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

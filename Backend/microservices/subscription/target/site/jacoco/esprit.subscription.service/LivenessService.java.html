@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>LivenessService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.service</a> &gt; <span class="el_source">LivenessService.java</span></div><h1>LivenessService.java</h1><pre class="source lang-java linenums">package esprit.subscription.service;
+
+import esprit.subscription.DTO.LivenessChallengeResponse;
+import esprit.subscription.DTO.LivenessVerifyRequest;
+import esprit.subscription.DTO.LivenessVerifyResponse;
+import esprit.subscription.entity.BlockedPaymentAttempt;
+import esprit.subscription.entity.ChallengeGesture;
+import esprit.subscription.entity.LivenessVerification;
+import esprit.subscription.entity.LivenessVerificationStatus;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import esprit.subscription.repository.BlockedPaymentAttemptRepository;
+import esprit.subscription.repository.LivenessVerificationRepository;
+import io.jsonwebtoken.Claims;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.time.format.DateTimeFormatter;
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@Service
+public class LivenessService {
+
+    private final int challengeWindowMinutes;
+    private final int maxChallengesPerWindow;
+    private static final int BLOCK_MINUTES = 30;
+    private static final double PASS_THRESHOLD = 80.0;
+
+    private final LivenessVerificationRepository verificationRepository;
+    private final BlockedPaymentAttemptRepository blockedRepository;
+    private final LivenessJwtService livenessJwtService;
+    private final UserBlockService userBlockService;
+    private final ObjectMapper objectMapper;
+
+    public LivenessService(
+            LivenessVerificationRepository verificationRepository,
+            BlockedPaymentAttemptRepository blockedRepository,
+            LivenessJwtService livenessJwtService,
+            UserBlockService userBlockService,
+            ObjectMapper objectMapper,
+            @Value(&quot;${liveness.challenge.window-minutes:10}&quot;) int challengeWindowMinutes,
+<span class="fc" id="L46">            @Value(&quot;${liveness.challenge.max-per-window:3}&quot;) int maxChallengesPerWindow) {</span>
+<span class="fc" id="L47">        this.verificationRepository = verificationRepository;</span>
+<span class="fc" id="L48">        this.blockedRepository = blockedRepository;</span>
+<span class="fc" id="L49">        this.livenessJwtService = livenessJwtService;</span>
+<span class="fc" id="L50">        this.userBlockService = userBlockService;</span>
+<span class="fc" id="L51">        this.objectMapper = objectMapper;</span>
+<span class="fc" id="L52">        this.challengeWindowMinutes = Math.max(1, challengeWindowMinutes);</span>
+<span class="fc" id="L53">        this.maxChallengesPerWindow = Math.max(1, maxChallengesPerWindow);</span>
+<span class="fc" id="L54">    }</span>
+
+    /**
+     * Validates the liveness JWT and marks the verification row as consumed (one payment per token).
+     */
+    @Transactional
+    public void assertAndConsumePaymentJwt(String jwt, long userId) {
+<span class="nc bnc" id="L61" title="All 4 branches missed.">        if (jwt == null || jwt.isBlank()) {</span>
+<span class="nc" id="L62">            throw new ResponseStatusException(HttpStatus.FORBIDDEN, &quot;Vérification d'identité requise&quot;);</span>
+        }
+<span class="nc" id="L64">        String t = jwt.trim();</span>
+<span class="nc bnc" id="L65" title="All 2 branches missed.">        if (!livenessJwtService.isValidForPayment(t, userId)) {</span>
+<span class="nc" id="L66">            throw new ResponseStatusException(HttpStatus.FORBIDDEN, &quot;Vérification d'identité requise&quot;);</span>
+        }
+<span class="nc" id="L68">        Claims claims = livenessJwtService.parseAndValidate(t);</span>
+<span class="nc bnc" id="L69" title="All 2 branches missed.">        if (claims == null) {</span>
+<span class="nc" id="L70">            throw new ResponseStatusException(HttpStatus.FORBIDDEN, &quot;Vérification d'identité requise&quot;);</span>
+        }
+<span class="nc" id="L72">        String challengeTok = claims.get(&quot;challenge&quot;, String.class);</span>
+<span class="nc bnc" id="L73" title="All 4 branches missed.">        if (challengeTok == null || challengeTok.isBlank()) {</span>
+<span class="nc" id="L74">            throw new ResponseStatusException(HttpStatus.FORBIDDEN, &quot;Vérification d'identité requise&quot;);</span>
+        }
+<span class="nc" id="L76">        LivenessVerification v = verificationRepository.findByChallengeToken(challengeTok)</span>
+<span class="nc" id="L77">                .orElseThrow(() -&gt; new ResponseStatusException(HttpStatus.FORBIDDEN, &quot;Vérification d'identité requise&quot;));</span>
+<span class="nc bnc" id="L78" title="All 2 branches missed.">        if (v.getJwtConsumedAt() != null) {</span>
+<span class="nc" id="L79">            throw new ResponseStatusException(HttpStatus.FORBIDDEN, &quot;Jeton liveness déjà utilisé&quot;);</span>
+        }
+<span class="nc bnc" id="L81" title="All 2 branches missed.">        if (v.getStatus() != LivenessVerificationStatus.PASSED) {</span>
+<span class="nc" id="L82">            throw new ResponseStatusException(HttpStatus.FORBIDDEN, &quot;Vérification d'identité requise&quot;);</span>
+        }
+<span class="nc" id="L84">        v.setJwtConsumedAt(LocalDateTime.now());</span>
+<span class="nc" id="L85">        verificationRepository.save(v);</span>
+<span class="nc" id="L86">    }</span>
+
+    @Transactional(readOnly = true)
+    public void assertNotBlocked(Long userId) {
+<span class="nc" id="L90">        LocalDateTime now = LocalDateTime.now();</span>
+<span class="nc" id="L91">        blockedRepository.findFirstByUserIdAndBlockedUntilAfterOrderByBlockedUntilDesc(userId, now)</span>
+<span class="nc" id="L92">                .ifPresent(b -&gt; {</span>
+<span class="nc" id="L93">                    throw new ResponseStatusException(HttpStatus.FORBIDDEN, &quot;Payment temporarily blocked after failed liveness attempts&quot;);</span>
+                });
+<span class="nc" id="L95">    }</span>
+
+    @Transactional
+    public LivenessChallengeResponse createChallenge(Long userId, HttpServletRequest request) {
+<span class="nc" id="L99">        assertNotBlocked(userId);</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">        if (userBlockService.isLivenessForbidden(String.valueOf(userId))) {</span>
+<span class="nc" id="L101">            throw new ResponseStatusException(</span>
+                    HttpStatus.FORBIDDEN,
+                    &quot;Compte bloqué — demandez un déblocage ou contactez le support.&quot;);
+        }
+
+<span class="nc" id="L106">        LocalDateTime since = LocalDateTime.now().minusMinutes(challengeWindowMinutes);</span>
+<span class="nc" id="L107">        int recent = verificationRepository.countByUserIdAndCreatedAtAfter(userId, since);</span>
+<span class="nc bnc" id="L108" title="All 2 branches missed.">        if (recent &gt;= maxChallengesPerWindow) {</span>
+<span class="nc" id="L109">            throw new ResponseStatusException(</span>
+                    HttpStatus.TOO_MANY_REQUESTS,
+                    &quot;Trop de demandes de défi de présence — réessayez dans quelques minutes (limite anti-abus).&quot;);
+        }
+
+<span class="nc" id="L114">        ChallengeGesture gesture = ChallengeGesture.random();</span>
+<span class="nc" id="L115">        LivenessVerification v = new LivenessVerification();</span>
+<span class="nc" id="L116">        v.setUserId(userId);</span>
+<span class="nc" id="L117">        v.setChallengeGesture(gesture);</span>
+<span class="nc" id="L118">        v.setChallengeToken(UUID.randomUUID().toString());</span>
+<span class="nc" id="L119">        v.setStatus(LivenessVerificationStatus.PENDING);</span>
+<span class="nc" id="L120">        v.setAttemptCount(0);</span>
+<span class="nc" id="L121">        v.setCreatedAt(LocalDateTime.now());</span>
+<span class="nc" id="L122">        v.setExpiresAt(v.getCreatedAt().plusMinutes(3));</span>
+<span class="nc" id="L123">        v.setIpAddress(clientIp(request));</span>
+<span class="nc" id="L124">        String ua = request.getHeader(&quot;User-Agent&quot;);</span>
+<span class="nc bnc" id="L125" title="All 4 branches missed.">        v.setUserAgent(ua != null &amp;&amp; ua.length() &gt; 500 ? ua.substring(0, 500) : ua);</span>
+
+<span class="nc" id="L127">        verificationRepository.save(v);</span>
+
+<span class="nc" id="L129">        return LivenessChallengeResponse.builder()</span>
+<span class="nc" id="L130">                .challengeToken(v.getChallengeToken())</span>
+<span class="nc" id="L131">                .gesture(gesture.name())</span>
+<span class="nc" id="L132">                .gestureLabel(gesture.frenchLabel())</span>
+<span class="nc" id="L133">                .expiresAt(v.getExpiresAt().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))</span>
+<span class="nc" id="L134">                .build();</span>
+    }
+
+    @Transactional
+    public LivenessVerifyResponse verify(LivenessVerifyRequest req, HttpServletRequest request) {
+<span class="nc bnc" id="L139" title="All 4 branches missed.">        if (req.getChallengeToken() == null || req.getChallengeToken().isBlank()) {</span>
+<span class="nc" id="L140">            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, &quot;challengeToken required&quot;);</span>
+        }
+
+<span class="nc" id="L143">        LivenessVerification v = verificationRepository.findByChallengeToken(req.getChallengeToken().trim())</span>
+<span class="nc" id="L144">                .orElseThrow(() -&gt; new ResponseStatusException(HttpStatus.NOT_FOUND, &quot;Unknown challenge&quot;));</span>
+
+<span class="nc bnc" id="L146" title="All 2 branches missed.">        if (userBlockService.isLivenessForbidden(String.valueOf(v.getUserId()))) {</span>
+<span class="nc" id="L147">            throw new ResponseStatusException(</span>
+                    HttpStatus.FORBIDDEN,
+                    &quot;Compte bloqué — demandez un déblocage ou contactez le support.&quot;);
+        }
+
+<span class="nc" id="L152">        LocalDateTime now = LocalDateTime.now();</span>
+<span class="nc bnc" id="L153" title="All 2 branches missed.">        if (v.getStatus() == LivenessVerificationStatus.EXPIRED</span>
+<span class="nc bnc" id="L154" title="All 2 branches missed.">                || now.isAfter(v.getExpiresAt())) {</span>
+<span class="nc bnc" id="L155" title="All 2 branches missed.">            if (v.getStatus() == LivenessVerificationStatus.PENDING) {</span>
+<span class="nc" id="L156">                v.setStatus(LivenessVerificationStatus.EXPIRED);</span>
+<span class="nc" id="L157">                verificationRepository.save(v);</span>
+            }
+<span class="nc" id="L159">            throw new ResponseStatusException(HttpStatus.GONE, &quot;Challenge expired&quot;);</span>
+        }
+
+<span class="nc bnc" id="L162" title="All 2 branches missed.">        if (v.getStatus() != LivenessVerificationStatus.PENDING) {</span>
+<span class="nc" id="L163">            throw new ResponseStatusException(HttpStatus.CONFLICT, &quot;Challenge already used&quot;);</span>
+        }
+
+<span class="nc bnc" id="L166" title="All 2 branches missed.">        if (!req.isFaceValidated()) {</span>
+<span class="nc" id="L167">            registerUserBlockFailure(v.getUserId(), &quot;Visage humain non confirmé&quot;, req);</span>
+<span class="nc" id="L168">            return LivenessVerifyResponse.builder()</span>
+<span class="nc" id="L169">                    .passed(false)</span>
+<span class="nc" id="L170">                    .globalScore(0)</span>
+<span class="nc" id="L171">                    .message(&quot;Visage humain non confirmé&quot;)</span>
+<span class="nc" id="L172">                    .build();</span>
+        }
+<span class="nc bnc" id="L174" title="All 2 branches missed.">        if (req.getBlinkCount() &gt; 5) {</span>
+<span class="nc" id="L175">            registerUserBlockFailure(v.getUserId(), &quot;Trop de clignements détectés&quot;, req);</span>
+<span class="nc" id="L176">            return LivenessVerifyResponse.builder()</span>
+<span class="nc" id="L177">                    .passed(false)</span>
+<span class="nc" id="L178">                    .globalScore(0)</span>
+<span class="nc" id="L179">                    .message(&quot;Trop de clignements détectés&quot;)</span>
+<span class="nc" id="L180">                    .build();</span>
+        }
+<span class="nc bnc" id="L182" title="All 2 branches missed.">        if (req.getTimeUsedMs() &lt; 4000) {</span>
+<span class="nc" id="L183">            registerUserBlockFailure(v.getUserId(), &quot;Session complétée trop rapidement&quot;, req);</span>
+<span class="nc" id="L184">            return LivenessVerifyResponse.builder()</span>
+<span class="nc" id="L185">                    .passed(false)</span>
+<span class="nc" id="L186">                    .globalScore(0)</span>
+<span class="nc" id="L187">                    .message(&quot;Session complétée trop rapidement&quot;)</span>
+<span class="nc" id="L188">                    .build();</span>
+        }
+<span class="nc bnc" id="L190" title="All 2 branches missed.">        if (req.getTimeUsedMs() &gt; 62000) {</span>
+<span class="nc" id="L191">            registerUserBlockFailure(v.getUserId(), &quot;Session expirée&quot;, req);</span>
+<span class="nc" id="L192">            return LivenessVerifyResponse.builder()</span>
+<span class="nc" id="L193">                    .passed(false)</span>
+<span class="nc" id="L194">                    .globalScore(0)</span>
+<span class="nc" id="L195">                    .message(&quot;Session expirée&quot;)</span>
+<span class="nc" id="L196">                    .build();</span>
+        }
+
+<span class="nc" id="L199">        double l = clampScore(req.getLivenessScore());</span>
+<span class="nc" id="L200">        double g = clampScore(req.getGestureScore());</span>
+<span class="nc" id="L201">        double a = clampScore(req.getAntiSpoofScore());</span>
+<span class="nc" id="L202">        double global = l * 0.35 + g * 0.40 + a * 0.25;</span>
+
+<span class="nc" id="L204">        v.setLivenessScore(l);</span>
+<span class="nc" id="L205">        v.setGestureScore(g);</span>
+<span class="nc" id="L206">        v.setAntiSpoofScore(a);</span>
+<span class="nc" id="L207">        v.setGlobalScore(global);</span>
+
+<span class="nc" id="L209">        LivenessVerifyResponse.LivenessVerifyResponseBuilder b = LivenessVerifyResponse.builder()</span>
+<span class="nc" id="L210">                .globalScore(global);</span>
+
+<span class="nc bnc" id="L212" title="All 2 branches missed.">        if (global &gt;= PASS_THRESHOLD) {</span>
+<span class="nc" id="L213">            v.setStatus(LivenessVerificationStatus.PASSED);</span>
+<span class="nc" id="L214">            verificationRepository.save(v);</span>
+<span class="nc" id="L215">            String jwt = livenessJwtService.createToken(v.getUserId(), v.getChallengeToken());</span>
+<span class="nc" id="L216">            return b.passed(true).jwtToken(jwt).build();</span>
+        }
+
+<span class="nc" id="L219">        registerUserBlockFailure(v.getUserId(), &quot;Score global insuffisant&quot;, req);</span>
+
+<span class="nc" id="L221">        v.setAttemptCount(v.getAttemptCount() + 1);</span>
+<span class="nc" id="L222">        String blockedUntilIso = null;</span>
+<span class="nc bnc" id="L223" title="All 2 branches missed.">        if (v.getAttemptCount() &gt;= 3) {</span>
+<span class="nc" id="L224">            v.setStatus(LivenessVerificationStatus.FAILED);</span>
+<span class="nc" id="L225">            BlockedPaymentAttempt block = new BlockedPaymentAttempt();</span>
+<span class="nc" id="L226">            block.setUserId(v.getUserId());</span>
+<span class="nc" id="L227">            block.setIpAddress(clientIp(request));</span>
+<span class="nc" id="L228">            LocalDateTime until = now.plusMinutes(BLOCK_MINUTES);</span>
+<span class="nc" id="L229">            block.setBlockedUntil(until);</span>
+<span class="nc" id="L230">            block.setReason(&quot;Liveness verification failed 3 times&quot;);</span>
+<span class="nc" id="L231">            blockedRepository.save(block);</span>
+<span class="nc" id="L232">            blockedUntilIso = until.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);</span>
+        }
+<span class="nc" id="L234">        verificationRepository.save(v);</span>
+
+<span class="nc" id="L236">        return b.passed(false).blockedUntil(blockedUntilIso).message(&quot;Score insuffisant&quot;).build();</span>
+    }
+
+    private void registerUserBlockFailure(Long userId, String message, LivenessVerifyRequest req) {
+        try {
+<span class="nc" id="L241">            userBlockService.blockUser(String.valueOf(userId), message, objectMapper.writeValueAsString(req));</span>
+<span class="nc" id="L242">        } catch (Exception e) {</span>
+<span class="nc" id="L243">            userBlockService.blockUser(String.valueOf(userId), message, &quot;{}&quot;);</span>
+<span class="nc" id="L244">        }</span>
+<span class="nc" id="L245">    }</span>
+
+    private static double clampScore(double x) {
+<span class="nc bnc" id="L248" title="All 2 branches missed.">        if (x &lt; 0) return 0;</span>
+<span class="nc bnc" id="L249" title="All 2 branches missed.">        if (x &gt; 100) return 100;</span>
+<span class="nc" id="L250">        return x;</span>
+    }
+
+    private static String clientIp(HttpServletRequest request) {
+<span class="nc" id="L254">        String xf = request.getHeader(&quot;X-Forwarded-For&quot;);</span>
+<span class="nc bnc" id="L255" title="All 4 branches missed.">        if (xf != null &amp;&amp; !xf.isBlank()) {</span>
+<span class="nc" id="L256">            int comma = xf.indexOf(',');</span>
+<span class="nc bnc" id="L257" title="All 2 branches missed.">            return comma &gt; 0 ? xf.substring(0, comma).trim() : xf.trim();</span>
+        }
+<span class="nc" id="L259">        return request.getRemoteAddr();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

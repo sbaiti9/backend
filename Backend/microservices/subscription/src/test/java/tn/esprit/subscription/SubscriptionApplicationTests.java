@@ -1,9 +1,9 @@
-package tn.esprit.subscription;  
+package esprit.subscription;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
-@SpringBootTest
+@SpringBootTest(classes = SubscriptionApplication.class)
 class SubscriptionApplicationTests {
 
     @Test

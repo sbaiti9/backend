@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>UnlockChatAiAnalysisService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.service</a> &gt; <span class="el_source">UnlockChatAiAnalysisService.java</span></div><h1>UnlockChatAiAnalysisService.java</h1><pre class="source lang-java linenums">package esprit.subscription.service;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Service;
+
+/**
+ * Schedules Groq analysis after user messages (async so HTTP response is not blocked).
+ */
+@Service
+public class UnlockChatAiAnalysisService {
+
+<span class="fc" id="L14">    private static final Logger log = LoggerFactory.getLogger(UnlockChatAiAnalysisService.class);</span>
+
+    private final UnlockChatAiProcessor processor;
+
+<span class="fc" id="L18">    public UnlockChatAiAnalysisService(UnlockChatAiProcessor processor) {</span>
+<span class="fc" id="L19">        this.processor = processor;</span>
+<span class="fc" id="L20">    }</span>
+
+    @Async
+    public void scheduleAnalysis(Long sessionId) {
+        try {
+<span class="nc" id="L25">            processor.process(sessionId, false);</span>
+<span class="nc" id="L26">        } catch (Exception e) {</span>
+<span class="nc" id="L27">            log.warn(&quot;Unlock chat AI analysis failed for session {}: {}&quot;, sessionId, e.getMessage());</span>
+<span class="nc" id="L28">        }</span>
+<span class="nc" id="L29">    }</span>
+
+    /** Admin “forcer l’analyse” — higher temperature + unique prompt suffix so scores are not stuck on one value. */
+    @Async
+    public void scheduleForcedAnalysis(Long sessionId) {
+        try {
+<span class="nc" id="L35">            processor.process(sessionId, true);</span>
+<span class="nc" id="L36">        } catch (Exception e) {</span>
+<span class="nc" id="L37">            log.warn(&quot;Unlock chat forced AI analysis failed for session {}: {}&quot;, sessionId, e.getMessage());</span>
+<span class="nc" id="L38">        }</span>
+<span class="nc" id="L39">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

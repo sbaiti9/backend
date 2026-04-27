@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GroqProperties.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.config</a> &gt; <span class="el_source">GroqProperties.java</span></div><h1>GroqProperties.java</h1><pre class="source lang-java linenums">package esprit.subscription.config;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+@ConfigurationProperties(prefix = &quot;groq.api&quot;)
+<span class="fc" id="L6">public class GroqProperties {</span>
+
+<span class="fc" id="L8">    private boolean enabled = true;</span>
+<span class="fc" id="L9">    private String url = &quot;https://api.groq.com/openai/v1/chat/completions&quot;;</span>
+    /** Prefer env var {@code GROQ_API_KEY}; never commit real keys. */
+<span class="fc" id="L11">    private String key = &quot;&quot;;</span>
+<span class="fc" id="L12">    private String model = &quot;llama-3.1-8b-instant&quot;;</span>
+
+    public boolean isEnabled() {
+<span class="fc" id="L15">        return enabled;</span>
+    }
+
+    public void setEnabled(boolean enabled) {
+<span class="fc" id="L19">        this.enabled = enabled;</span>
+<span class="fc" id="L20">    }</span>
+
+    public String getUrl() {
+<span class="nc" id="L23">        return url;</span>
+    }
+
+    public void setUrl(String url) {
+<span class="fc" id="L27">        this.url = url;</span>
+<span class="fc" id="L28">    }</span>
+
+    public String getKey() {
+<span class="fc" id="L31">        return key;</span>
+    }
+
+    public void setKey(String key) {
+<span class="fc" id="L35">        this.key = key;</span>
+<span class="fc" id="L36">    }</span>
+
+    public String getModel() {
+<span class="nc" id="L39">        return model;</span>
+    }
+
+    public void setModel(String model) {
+<span class="fc" id="L43">        this.model = model;</span>
+<span class="fc" id="L44">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PaymentRecord.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.entity</a> &gt; <span class="el_source">PaymentRecord.java</span></div><h1>PaymentRecord.java</h1><pre class="source lang-java linenums">package esprit.subscription.entity;
+
+import jakarta.persistence.*;
+import lombok.*;
+
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = &quot;payment_records&quot;)
+@Getter
+<span class="nc" id="L11">@Setter</span>
+<span class="fc" id="L12">@NoArgsConstructor</span>
+<span class="nc" id="L13">@AllArgsConstructor</span>
+public class PaymentRecord {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+<span class="nc" id="L18">    private Long id;</span>
+
+    @Column(nullable = false)
+<span class="nc" id="L21">    private Long userId;</span>
+
+<span class="nc" id="L23">    private Long subscriptionId;</span>
+
+    /** e.g. RENEWAL */
+    @Column(nullable = false, length = 32)
+<span class="nc" id="L27">    private String type;</span>
+
+<span class="nc" id="L29">    private Double amount;</span>
+
+    /** SUCCESS, FAILED, PENDING — nullable pour les anciennes lignes. */
+    @Column(length = 32)
+<span class="nc" id="L33">    private String status;</span>
+
+<span class="nc" id="L35">    private LocalDateTime paidAt;</span>
+
+    @Column(length = 64)
+<span class="nc" id="L38">    private String planName;</span>
+
+    /** Stripe session id / external payment id for idempotency. */
+    @Column(length = 128)
+<span class="nc" id="L42">    private String externalPaymentRef;</span>
+
+    @Column(length = 16)
+<span class="nc" id="L45">    private String billingCycle;</span>
+
+<span class="nc" id="L47">    private LocalDateTime endDate;</span>
+
+    @Column(nullable = false, updatable = false)
+<span class="nc" id="L50">    private LocalDateTime createdAt;</span>
+
+    @PrePersist
+    void prePersist() {
+<span class="nc bnc" id="L54" title="All 2 branches missed.">        if (createdAt == null) {</span>
+<span class="nc" id="L55">            createdAt = LocalDateTime.now();</span>
+        }
+<span class="nc" id="L57">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

@@ -1,0 +1,290 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PlanAdvisorAiService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.service</a> &gt; <span class="el_source">PlanAdvisorAiService.java</span></div><h1>PlanAdvisorAiService.java</h1><pre class="source lang-java linenums">package esprit.subscription.service;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import esprit.subscription.DTO.CompanyDto;
+import esprit.subscription.DTO.PlanRecommendationDto;
+import esprit.subscription.DTO.UserProfileDto;
+import esprit.subscription.client.EntrepriseClient;
+import esprit.subscription.client.UserClient;
+import esprit.subscription.entity.PricingPlan;
+import esprit.subscription.entity.Subscription;
+import esprit.subscription.repository.SubscriptionRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Groq-based plan recommendation using user profile, company (entreprise), catalog, and stats baseline.
+ */
+@Service
+public class PlanAdvisorAiService {
+
+<span class="fc" id="L29">    private static final Logger log = LoggerFactory.getLogger(PlanAdvisorAiService.class);</span>
+
+    private static final String SYSTEM = &quot;&quot;&quot;
+            Tu es le conseiller d'abonnement Skillio. Tu dois UNIQUEMENT répondre par un objet JSON valide, sans markdown.
+            Clés obligatoires :
+            - recommendedPlanId (nombre) : l'id du plan choisi parmi la liste fournie.
+            - reason (string, en français) : 2 à 4 phrases, ton professionnel, personnalisé au profil.
+            - confidence (nombre 0 à 100) : ta confiance dans cette recommandation.
+            - preferredBillingCycle : soit &quot;MONTHLY&quot;, soit &quot;YEARLY&quot;, soit null si tu n'as pas d'avis.
+            Règles : choisir exactement un planId présent dans activePlans. Tenir compte du rôle (étudiant vs entreprise),
+            du budget (prix mensuel/annuel), des fonctionnalités, et de l'abonnement actuel s'il existe.
+            Si le profil est incomplet, reste prudent et explique-le dans reason tout en choisissant le plan le plus cohérent.
+            &quot;&quot;&quot;;
+
+    private final GroqChatClient groqChatClient;
+    private final UserClient userClient;
+    private final EntrepriseClient entrepriseClient;
+    private final PricingPlanService pricingPlanService;
+    private final SubscriptionRepository subscriptionRepository;
+    private final ObjectMapper objectMapper;
+
+    /** Same Groq endpoint/key/model as unlock-chat ({@code groq.api.*}); only temperature is feature-specific. */
+    @Value(&quot;${skillio.plan-advisor.groq.temperature:0.35}&quot;)
+    private double planAdvisorGroqTemperature;
+
+    public PlanAdvisorAiService(GroqChatClient groqChatClient,
+                                UserClient userClient,
+                                EntrepriseClient entrepriseClient,
+                                PricingPlanService pricingPlanService,
+                                SubscriptionRepository subscriptionRepository,
+<span class="fc" id="L59">                                ObjectMapper objectMapper) {</span>
+<span class="fc" id="L60">        this.groqChatClient = groqChatClient;</span>
+<span class="fc" id="L61">        this.userClient = userClient;</span>
+<span class="fc" id="L62">        this.entrepriseClient = entrepriseClient;</span>
+<span class="fc" id="L63">        this.pricingPlanService = pricingPlanService;</span>
+<span class="fc" id="L64">        this.subscriptionRepository = subscriptionRepository;</span>
+<span class="fc" id="L65">        this.objectMapper = objectMapper;</span>
+<span class="fc" id="L66">    }</span>
+
+    public PlanRecommendationDto advise(String userRole, Long userId, PlanRecommendationDto baseline) {
+<span class="fc" id="L69">        String role = normalizeUserRole(userRole);</span>
+<span class="fc" id="L70">        double temp = Math.max(0.0, Math.min(1.5, planAdvisorGroqTemperature));</span>
+<span class="fc" id="L71">        Optional&lt;String&gt; raw = groqChatClient.completeJson(SYSTEM, buildUserPayload(role, userId, baseline), temp);</span>
+<span class="fc bfc" id="L72" title="All 2 branches covered.">        if (raw.isEmpty()) {</span>
+<span class="fc" id="L73">            return copyBaseline(baseline, false, null, null);</span>
+        }
+        try {
+<span class="fc" id="L76">            JsonNode root = objectMapper.readTree(raw.get());</span>
+<span class="fc" id="L77">            long planId = root.path(&quot;recommendedPlanId&quot;).asLong(0);</span>
+<span class="fc" id="L78">            String reason = root.path(&quot;reason&quot;).asText(null);</span>
+<span class="fc" id="L79">            double conf = root.path(&quot;confidence&quot;).asDouble(Double.NaN);</span>
+<span class="fc" id="L80">            String cycle = textOrNull(root.path(&quot;preferredBillingCycle&quot;));</span>
+
+<span class="pc bpc" id="L82" title="3 of 6 branches missed.">            if (planId &lt;= 0 || reason == null || reason.isBlank()) {</span>
+<span class="nc" id="L83">                return copyBaseline(baseline, false, null, null);</span>
+            }
+
+<span class="fc" id="L86">            Optional&lt;PricingPlan&gt; planOpt = pricingPlanService.findById(planId);</span>
+<span class="pc bpc" id="L87" title="1 of 2 branches missed.">            if (planOpt.isEmpty()) {</span>
+<span class="nc" id="L88">                log.warn(&quot;AI recommended unknown planId={}&quot;, planId);</span>
+<span class="nc" id="L89">                return copyBaseline(baseline, false, null, null);</span>
+            }
+<span class="fc" id="L91">            PricingPlan plan = planOpt.get();</span>
+
+<span class="pc bpc" id="L93" title="1 of 2 branches missed.">            int confidencePct = Double.isFinite(conf)</span>
+<span class="fc" id="L94">                    ? (int) Math.round(Math.max(0, Math.min(100, conf)))</span>
+<span class="pc" id="L95">                    : 75;</span>
+
+<span class="fc" id="L97">            PlanRecommendationDto stats = resolveStatsForPlan(role, planId, plan, baseline);</span>
+<span class="fc" id="L98">            return PlanRecommendationDto.builder()</span>
+<span class="fc" id="L99">                    .planId(planId)</span>
+<span class="fc" id="L100">                    .planName(plan.getName())</span>
+<span class="fc" id="L101">                    .reason(reason.trim())</span>
+<span class="fc" id="L102">                    .activeUserCount(stats.getActiveUserCount())</span>
+<span class="fc" id="L103">                    .adoptionRate(stats.getAdoptionRate())</span>
+<span class="fc" id="L104">                    .mostPopular(stats.isMostPopular())</span>
+<span class="fc" id="L105">                    .bestValue(stats.isBestValue())</span>
+<span class="fc" id="L106">                    .aiPowered(true)</span>
+<span class="fc" id="L107">                    .confidenceScore(confidencePct)</span>
+<span class="fc" id="L108">                    .billingCycleHint(cycle)</span>
+<span class="fc" id="L109">                    .build();</span>
+<span class="nc" id="L110">        } catch (Exception e) {</span>
+<span class="nc" id="L111">            log.warn(&quot;Plan advisor AI parse failed: {}&quot;, e.getMessage());</span>
+<span class="nc" id="L112">            return copyBaseline(baseline, false, null, null);</span>
+        }
+    }
+
+    private PlanRecommendationDto copyBaseline(PlanRecommendationDto baseline, boolean ai,
+                                               Integer confidence, String cycleHint) {
+<span class="fc" id="L118">        return PlanRecommendationDto.builder()</span>
+<span class="fc" id="L119">                .planId(baseline.getPlanId())</span>
+<span class="fc" id="L120">                .planName(baseline.getPlanName())</span>
+<span class="fc" id="L121">                .reason(baseline.getReason())</span>
+<span class="fc" id="L122">                .activeUserCount(baseline.getActiveUserCount())</span>
+<span class="fc" id="L123">                .adoptionRate(baseline.getAdoptionRate())</span>
+<span class="fc" id="L124">                .mostPopular(baseline.isMostPopular())</span>
+<span class="fc" id="L125">                .bestValue(baseline.isBestValue())</span>
+<span class="fc" id="L126">                .aiPowered(ai)</span>
+<span class="fc" id="L127">                .confidenceScore(confidence)</span>
+<span class="fc" id="L128">                .billingCycleHint(cycleHint)</span>
+<span class="fc" id="L129">                .build();</span>
+    }
+
+    /**
+     * Recompute adoption-style fields for the chosen plan; reuse baseline when same plan as stats recommendation.
+     */
+    private PlanRecommendationDto resolveStatsForPlan(String role, Long planId, PricingPlan plan,
+                                                      PlanRecommendationDto baseline) {
+<span class="pc bpc" id="L137" title="2 of 4 branches missed.">        if (baseline.getPlanId() != null &amp;&amp; baseline.getPlanId().equals(planId)) {</span>
+<span class="nc" id="L138">            return baseline;</span>
+        }
+
+<span class="fc" id="L141">        long totalForRole = subscriptionRepository.countActiveByUserRoleNormalized(role);</span>
+<span class="fc" id="L142">        List&lt;Object[]&gt; rows = subscriptionRepository.countActiveByPlanForRole(role);</span>
+<span class="pc bpc" id="L143" title="3 of 4 branches missed.">        if (rows.isEmpty() || totalForRole == 0) {</span>
+<span class="fc" id="L144">            rows = subscriptionRepository.countActivePlansWithIds();</span>
+<span class="fc" id="L145">            totalForRole = subscriptionRepository.countByStatus(&quot;ACTIVE&quot;);</span>
+        }
+
+<span class="fc" id="L148">        long cnt = 0;</span>
+<span class="fc" id="L149">        boolean found = false;</span>
+<span class="pc bpc" id="L150" title="1 of 2 branches missed.">        for (Object[] row : rows) {</span>
+<span class="nc" id="L151">            Long pid = (Long) row[0];</span>
+<span class="nc bnc" id="L152" title="All 4 branches missed.">            if (pid != null &amp;&amp; pid.equals(planId)) {</span>
+<span class="nc" id="L153">                cnt = (Long) row[2];</span>
+<span class="nc" id="L154">                found = true;</span>
+<span class="nc" id="L155">                break;</span>
+            }
+<span class="nc" id="L157">        }</span>
+<span class="pc bpc" id="L158" title="2 of 4 branches missed.">        if (!found &amp;&amp; !rows.isEmpty()) {</span>
+<span class="nc" id="L159">            Object[] top = rows.get(0);</span>
+<span class="nc bnc" id="L160" title="All 2 branches missed.">            if (planId.equals((Long) top[0])) {</span>
+<span class="nc" id="L161">                cnt = (Long) top[2];</span>
+<span class="nc" id="L162">                found = true;</span>
+            }
+        }
+
+<span class="pc bpc" id="L166" title="3 of 4 branches missed.">        double adoption = (found &amp;&amp; totalForRole &gt; 0) ? (cnt * 100.0 / totalForRole) : 0.0;</span>
+<span class="fc" id="L167">        boolean bestValue = isBestValuePlan(plan);</span>
+<span class="pc bpc" id="L168" title="5 of 6 branches missed.">        boolean mostPopular = !rows.isEmpty() &amp;&amp; rows.get(0)[0] != null &amp;&amp; planId.equals((Long) rows.get(0)[0]);</span>
+
+<span class="fc" id="L170">        return PlanRecommendationDto.builder()</span>
+<span class="fc" id="L171">                .planId(planId)</span>
+<span class="fc" id="L172">                .planName(plan.getName())</span>
+<span class="fc" id="L173">                .reason(&quot;&quot;)</span>
+<span class="fc" id="L174">                .activeUserCount((int) cnt)</span>
+<span class="fc" id="L175">                .adoptionRate(Math.round(adoption * 10.0) / 10.0)</span>
+<span class="fc" id="L176">                .mostPopular(mostPopular)</span>
+<span class="fc" id="L177">                .bestValue(bestValue)</span>
+<span class="fc" id="L178">                .build();</span>
+    }
+
+    private String buildUserPayload(String role, Long userId, PlanRecommendationDto baseline) {
+<span class="fc" id="L182">        ObjectNode root = objectMapper.createObjectNode();</span>
+<span class="fc" id="L183">        root.put(&quot;userRole&quot;, role);</span>
+<span class="fc" id="L184">        root.put(&quot;userId&quot;, userId);</span>
+
+<span class="fc" id="L186">        UserProfileDto profile = safeUser(userId);</span>
+<span class="pc bpc" id="L187" title="1 of 2 branches missed.">        if (profile != null) {</span>
+<span class="nc" id="L188">            root.set(&quot;userProfile&quot;, objectMapper.valueToTree(profile));</span>
+        } else {
+<span class="fc" id="L190">            root.putNull(&quot;userProfile&quot;);</span>
+        }
+
+<span class="pc bpc" id="L193" title="1 of 2 branches missed.">        if (&quot;ENTERPRISE&quot;.equals(role)) {</span>
+<span class="nc" id="L194">            CompanyDto co = safeCompany(userId);</span>
+<span class="nc bnc" id="L195" title="All 2 branches missed.">            if (co != null) {</span>
+<span class="nc" id="L196">                root.set(&quot;company&quot;, objectMapper.valueToTree(co));</span>
+            } else {
+<span class="nc" id="L198">                root.putNull(&quot;company&quot;);</span>
+            }
+<span class="nc" id="L200">        } else {</span>
+<span class="fc" id="L201">            root.putNull(&quot;company&quot;);</span>
+        }
+
+<span class="fc" id="L204">        root.set(&quot;baselineRecommendation&quot;, objectMapper.valueToTree(baseline));</span>
+
+<span class="fc" id="L206">        ArrayNode plans = objectMapper.createArrayNode();</span>
+<span class="fc bfc" id="L207" title="All 2 branches covered.">        for (PricingPlan p : pricingPlanService.findAllActive()) {</span>
+<span class="fc" id="L208">            ObjectNode n = objectMapper.createObjectNode();</span>
+<span class="fc" id="L209">            n.put(&quot;id&quot;, p.getId());</span>
+<span class="fc" id="L210">            n.put(&quot;name&quot;, p.getName());</span>
+<span class="pc bpc" id="L211" title="1 of 2 branches missed.">            n.put(&quot;description&quot;, p.getDescription() != null ? p.getDescription() : &quot;&quot;);</span>
+<span class="pc bpc" id="L212" title="1 of 2 branches missed.">            n.put(&quot;monthlyPrice&quot;, p.getMonthlyPrice() != null ? p.getMonthlyPrice() : 0);</span>
+<span class="pc bpc" id="L213" title="1 of 2 branches missed.">            n.put(&quot;yearlyPrice&quot;, p.getYearlyPrice() != null ? p.getYearlyPrice() : 0);</span>
+<span class="fc" id="L214">            n.put(&quot;highlight&quot;, Boolean.TRUE.equals(p.getHighlight()));</span>
+<span class="fc" id="L215">            plans.add(n);</span>
+<span class="fc" id="L216">        }</span>
+<span class="fc" id="L217">        root.set(&quot;activePlans&quot;, plans);</span>
+
+<span class="fc" id="L219">        Optional&lt;Subscription&gt; subOpt = subscriptionRepository.findFirstByUserIdAndStatusIn(</span>
+<span class="fc" id="L220">                userId, List.of(&quot;ACTIVE&quot;, &quot;EXPIRED&quot;));</span>
+<span class="pc bpc" id="L221" title="1 of 2 branches missed.">        if (subOpt.isPresent()) {</span>
+<span class="nc" id="L222">            Subscription s = subOpt.get();</span>
+<span class="nc" id="L223">            ObjectNode sn = objectMapper.createObjectNode();</span>
+<span class="nc" id="L224">            sn.put(&quot;status&quot;, s.getStatus());</span>
+<span class="nc" id="L225">            sn.put(&quot;billingCycle&quot;, s.getBillingCycle());</span>
+<span class="nc bnc" id="L226" title="All 2 branches missed.">            if (s.getPricingPlan() != null) {</span>
+<span class="nc" id="L227">                sn.put(&quot;planId&quot;, s.getPricingPlan().getId());</span>
+<span class="nc" id="L228">                sn.put(&quot;planName&quot;, s.getPricingPlan().getName());</span>
+            }
+<span class="nc" id="L230">            root.set(&quot;latestSubscription&quot;, sn);</span>
+<span class="nc" id="L231">        } else {</span>
+<span class="fc" id="L232">            root.putNull(&quot;latestSubscription&quot;);</span>
+        }
+
+<span class="fc" id="L235">        return root.toString();</span>
+    }
+
+    private UserProfileDto safeUser(Long userId) {
+        try {
+<span class="fc" id="L240">            return userClient.getUserById(userId);</span>
+<span class="nc" id="L241">        } catch (Exception e) {</span>
+<span class="nc" id="L242">            log.debug(&quot;Could not load user {}: {}&quot;, userId, e.getMessage());</span>
+<span class="nc" id="L243">            return null;</span>
+        }
+    }
+
+    private CompanyDto safeCompany(Long userId) {
+        try {
+<span class="nc" id="L249">            return entrepriseClient.getCompanyByUserId(userId);</span>
+<span class="nc" id="L250">        } catch (Exception e) {</span>
+<span class="nc" id="L251">            log.debug(&quot;Could not load company for user {}: {}&quot;, userId, e.getMessage());</span>
+<span class="nc" id="L252">            return null;</span>
+        }
+    }
+
+    private static String normalizeUserRole(String userRole) {
+<span class="pc bpc" id="L257" title="2 of 4 branches missed.">        if (userRole == null || userRole.isBlank()) {</span>
+<span class="nc" id="L258">            return &quot;ENTERPRISE&quot;;</span>
+        }
+<span class="fc" id="L260">        String r = userRole.trim();</span>
+<span class="pc bpc" id="L261" title="1 of 2 branches missed.">        if (&quot;STUDENT&quot;.equalsIgnoreCase(r)) {</span>
+<span class="nc" id="L262">            return &quot;ETUDIANT&quot;;</span>
+        }
+<span class="fc" id="L264">        return r.toUpperCase();</span>
+    }
+
+    private static boolean isBestValuePlan(PricingPlan p) {
+<span class="pc bpc" id="L268" title="2 of 4 branches missed.">        if (p.getMonthlyPrice() == null || p.getYearlyPrice() == null) {</span>
+<span class="nc" id="L269">            return false;</span>
+        }
+<span class="fc" id="L271">        double monthlyEq = p.getYearlyPrice() / 12.0;</span>
+<span class="pc bpc" id="L272" title="1 of 2 branches missed.">        return monthlyEq &lt; p.getMonthlyPrice() * 0.9;</span>
+    }
+
+    private static String textOrNull(JsonNode n) {
+<span class="pc bpc" id="L276" title="3 of 6 branches missed.">        if (n == null || n.isNull() || n.isMissingNode()) {</span>
+<span class="nc" id="L277">            return null;</span>
+        }
+<span class="fc" id="L279">        String s = n.asText();</span>
+<span class="pc bpc" id="L280" title="2 of 4 branches missed.">        if (s == null || s.isBlank()) {</span>
+<span class="nc" id="L281">            return null;</span>
+        }
+<span class="fc" id="L283">        String u = s.trim().toUpperCase();</span>
+<span class="pc bpc" id="L284" title="2 of 4 branches missed.">        if (&quot;MONTHLY&quot;.equals(u) || &quot;YEARLY&quot;.equals(u)) {</span>
+<span class="fc" id="L285">            return u;</span>
+        }
+<span class="nc" id="L287">        return null;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

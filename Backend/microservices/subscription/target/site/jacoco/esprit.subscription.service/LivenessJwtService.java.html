@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>LivenessJwtService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.service</a> &gt; <span class="el_source">LivenessJwtService.java</span></div><h1>LivenessJwtService.java</h1><pre class="source lang-java linenums">package esprit.subscription.service;
+
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.Date;
+import java.util.UUID;
+
+@Service
+public class LivenessJwtService {
+
+    private final SecretKey key;
+
+<span class="fc" id="L20">    public LivenessJwtService(@Value(&quot;${liveness.jwt.secret}&quot;) String secret) {</span>
+<span class="pc bpc" id="L21" title="2 of 4 branches missed.">        if (secret == null || secret.length() &lt; 32) {</span>
+<span class="nc" id="L22">            throw new IllegalStateException(&quot;liveness.jwt.secret must be at least 32 characters&quot;);</span>
+        }
+<span class="fc" id="L24">        this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));</span>
+<span class="fc" id="L25">    }</span>
+
+    public String createToken(long userId, String challengeToken) {
+<span class="nc" id="L28">        Instant now = Instant.now();</span>
+<span class="nc" id="L29">        Instant exp = now.plusSeconds(5 * 60L);</span>
+<span class="nc" id="L30">        return Jwts.builder()</span>
+<span class="nc" id="L31">                .subject(String.valueOf(userId))</span>
+<span class="nc" id="L32">                .id(UUID.randomUUID().toString())</span>
+<span class="nc" id="L33">                .claim(&quot;challenge&quot;, challengeToken)</span>
+<span class="nc" id="L34">                .claim(&quot;verified&quot;, true)</span>
+<span class="nc" id="L35">                .issuedAt(Date.from(now))</span>
+<span class="nc" id="L36">                .expiration(Date.from(exp))</span>
+<span class="nc" id="L37">                .signWith(key)</span>
+<span class="nc" id="L38">                .compact();</span>
+    }
+
+    /**
+     * @return null if invalid
+     */
+    public Claims parseAndValidate(String token) {
+        try {
+<span class="nc" id="L46">            return Jwts.parser()</span>
+<span class="nc" id="L47">                    .verifyWith(key)</span>
+<span class="nc" id="L48">                    .build()</span>
+<span class="nc" id="L49">                    .parseSignedClaims(token)</span>
+<span class="nc" id="L50">                    .getPayload();</span>
+<span class="nc" id="L51">        } catch (Exception e) {</span>
+<span class="nc" id="L52">            return null;</span>
+        }
+    }
+
+    public boolean isValidForPayment(String token, long expectedUserId) {
+<span class="nc" id="L57">        Claims claims = parseAndValidate(token);</span>
+<span class="nc bnc" id="L58" title="All 2 branches missed.">        if (claims == null) {</span>
+<span class="nc" id="L59">            return false;</span>
+        }
+<span class="nc" id="L61">        Boolean verified = claims.get(&quot;verified&quot;, Boolean.class);</span>
+<span class="nc bnc" id="L62" title="All 4 branches missed.">        if (verified == null || !verified) {</span>
+<span class="nc" id="L63">            return false;</span>
+        }
+<span class="nc" id="L65">        String sub = claims.getSubject();</span>
+<span class="nc bnc" id="L66" title="All 2 branches missed.">        if (sub == null) {</span>
+<span class="nc" id="L67">            return false;</span>
+        }
+        try {
+<span class="nc bnc" id="L70" title="All 2 branches missed.">            return Long.parseLong(sub) == expectedUserId;</span>
+<span class="nc" id="L71">        } catch (NumberFormatException e) {</span>
+<span class="nc" id="L72">            return false;</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

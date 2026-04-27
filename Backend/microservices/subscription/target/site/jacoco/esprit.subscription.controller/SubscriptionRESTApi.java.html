@@ -1,0 +1,805 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SubscriptionRESTApi.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.controller</a> &gt; <span class="el_source">SubscriptionRESTApi.java</span></div><h1>SubscriptionRESTApi.java</h1><pre class="source lang-java linenums">package esprit.subscription.controller;
+
+import com.stripe.Stripe;
+import com.stripe.exception.StripeException;
+import com.stripe.model.checkout.Session;
+import com.stripe.param.checkout.SessionCreateParams;
+import esprit.subscription.DTO.PauseSubscriptionRequest;
+import esprit.subscription.DTO.PlanRecommendationDto;
+import esprit.subscription.DTO.PromoValidationDto;
+import esprit.subscription.DTO.RevenueForecastDto;
+import esprit.subscription.DTO.LoyaltyStatusDto;
+import esprit.subscription.DTO.subb;
+import esprit.subscription.entity.FraudAlert;
+import esprit.subscription.entity.PricingPlan;
+import esprit.subscription.entity.PromoCode;
+import esprit.subscription.entity.Subscription;
+import esprit.subscription.entity.UserLoyaltyAccount;
+import esprit.subscription.service.FraudDetectionService;
+import esprit.subscription.service.LoyaltyService;
+import esprit.subscription.service.PricingPlanService;
+import esprit.subscription.service.PromoCodeService;
+import esprit.subscription.service.RevenueIntelligenceService;
+import esprit.subscription.service.StripeLoyaltyCouponService;
+import esprit.subscription.service.SubscriptionService;
+import esprit.subscription.service.EmailService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import esprit.subscription.service.GeoEventNotifier;
+import esprit.subscription.service.LivenessPaymentGuard;
+
+import jakarta.servlet.http.HttpServletRequest;
+
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+@RestController
+@RequestMapping(&quot;/sub&quot;)
+public class SubscriptionRESTApi {
+
+<span class="fc" id="L49">    private static final Logger log = LoggerFactory.getLogger(SubscriptionRESTApi.class);</span>
+
+    /** Stripe minimum charge for EUR (smallest unit — cents). */
+    private static final long STRIPE_MIN_AMOUNT_CENTS_EUR = 50L;
+
+    private final PricingPlanService pricingPlanService;
+    private final SubscriptionService subscriptionService;
+    private final PromoCodeService promoCodeService;
+    private final FraudDetectionService fraudDetectionService;
+    private final RevenueIntelligenceService revenueIntelligenceService;
+    private final LivenessPaymentGuard livenessPaymentGuard;
+    private final GeoEventNotifier geoEventNotifier;
+    private final LoyaltyService loyaltyService;
+    private final StripeLoyaltyCouponService stripeLoyaltyCouponService;
+    private final EmailService emailService;
+
+    @Value(&quot;${stripe.secret.key}&quot;)
+    private String stripeSecretKey;
+
+    public SubscriptionRESTApi(PricingPlanService pricingPlanService,
+                                SubscriptionService subscriptionService,
+                                PromoCodeService promoCodeService,
+                                FraudDetectionService fraudDetectionService,
+                                RevenueIntelligenceService revenueIntelligenceService,
+                                LivenessPaymentGuard livenessPaymentGuard,
+                                GeoEventNotifier geoEventNotifier,
+                                LoyaltyService loyaltyService,
+                                StripeLoyaltyCouponService stripeLoyaltyCouponService,
+<span class="fc" id="L77">                                EmailService emailService) {</span>
+<span class="fc" id="L78">        this.pricingPlanService = pricingPlanService;</span>
+<span class="fc" id="L79">        this.subscriptionService = subscriptionService;</span>
+<span class="fc" id="L80">        this.promoCodeService = promoCodeService;</span>
+<span class="fc" id="L81">        this.fraudDetectionService = fraudDetectionService;</span>
+<span class="fc" id="L82">        this.revenueIntelligenceService = revenueIntelligenceService;</span>
+<span class="fc" id="L83">        this.livenessPaymentGuard = livenessPaymentGuard;</span>
+<span class="fc" id="L84">        this.geoEventNotifier = geoEventNotifier;</span>
+<span class="fc" id="L85">        this.loyaltyService = loyaltyService;</span>
+<span class="fc" id="L86">        this.stripeLoyaltyCouponService = stripeLoyaltyCouponService;</span>
+<span class="fc" id="L87">        this.emailService = emailService;</span>
+<span class="fc" id="L88">    }</span>
+
+    // ─── Pricing Plan Endpoints ───────────────────────────────────────────────
+
+    @GetMapping(&quot;/plans&quot;)
+    public ResponseEntity&lt;List&lt;PricingPlan&gt;&gt; getActivePlans() {
+<span class="nc" id="L94">        return new ResponseEntity&lt;&gt;(pricingPlanService.findAllActive(), HttpStatus.OK);</span>
+    }
+
+    @GetMapping(&quot;/plans/all&quot;)
+    public ResponseEntity&lt;List&lt;PricingPlan&gt;&gt; getAllPlans() {
+<span class="nc" id="L99">        return new ResponseEntity&lt;&gt;(pricingPlanService.findAll(), HttpStatus.OK);</span>
+    }
+
+    @GetMapping(&quot;/plans/{id}&quot;)
+    public ResponseEntity&lt;PricingPlan&gt; getPlanById(@PathVariable Long id) {
+<span class="nc" id="L104">        Optional&lt;PricingPlan&gt; plan = pricingPlanService.findById(id);</span>
+<span class="nc" id="L105">        return plan.map(value -&gt; new ResponseEntity&lt;&gt;(value, HttpStatus.OK))</span>
+<span class="nc" id="L106">                .orElseGet(() -&gt; new ResponseEntity&lt;&gt;(HttpStatus.NOT_FOUND));</span>
+    }
+
+    @PostMapping(&quot;/plans&quot;)
+    public ResponseEntity&lt;PricingPlan&gt; createPlan(@RequestBody PricingPlan plan) {
+<span class="nc" id="L111">        return new ResponseEntity&lt;&gt;(pricingPlanService.save(plan), HttpStatus.CREATED);</span>
+    }
+
+    @PutMapping(&quot;/plans/{id}&quot;)
+    public ResponseEntity&lt;PricingPlan&gt; updatePlan(@PathVariable Long id, @RequestBody PricingPlan plan) {
+<span class="nc" id="L116">        PricingPlan updated = pricingPlanService.update(id, plan);</span>
+<span class="nc bnc" id="L117" title="All 2 branches missed.">        return updated != null</span>
+<span class="nc" id="L118">                ? new ResponseEntity&lt;&gt;(updated, HttpStatus.OK)</span>
+<span class="nc" id="L119">                : new ResponseEntity&lt;&gt;(HttpStatus.NOT_FOUND);</span>
+    }
+
+    @DeleteMapping(&quot;/plans/{id}&quot;)
+    public ResponseEntity&lt;Void&gt; deletePlan(@PathVariable Long id) {
+<span class="nc" id="L124">        pricingPlanService.delete(id);</span>
+<span class="nc" id="L125">        return new ResponseEntity&lt;&gt;(HttpStatus.OK);</span>
+    }
+
+    // ─── Promo Code Endpoints ─────────────────────────────────────────────────
+
+    @GetMapping(&quot;/promo/validate&quot;)
+    public ResponseEntity&lt;PromoValidationDto&gt; validatePromo(
+            @RequestParam String code,
+            @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) String userRole,
+            @RequestParam(required = false) Long planId,
+            @RequestParam(required = false) String billingCycle) {
+<span class="nc" id="L137">        Double baseAmount = null;</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">        if (planId != null) {</span>
+<span class="nc" id="L139">            Optional&lt;PricingPlan&gt; pl = pricingPlanService.findById(planId);</span>
+<span class="nc bnc" id="L140" title="All 2 branches missed.">            if (pl.isPresent()) {</span>
+<span class="nc" id="L141">                PricingPlan plan = pl.get();</span>
+<span class="nc bnc" id="L142" title="All 2 branches missed.">                String cycle = billingCycle != null ? billingCycle.trim() : &quot;MONTHLY&quot;;</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">                if (&quot;YEARLY&quot;.equalsIgnoreCase(cycle)) {</span>
+<span class="nc" id="L144">                    baseAmount = plan.getYearlyPrice();</span>
+                } else {
+<span class="nc" id="L146">                    baseAmount = plan.getMonthlyPrice();</span>
+                }
+            }
+        }
+<span class="nc" id="L150">        PromoValidationDto dto = promoCodeService.validateDetailed(</span>
+                code, userId, userRole, planId, billingCycle, baseAmount);
+<span class="nc" id="L152">        return ResponseEntity.ok(dto);</span>
+    }
+
+    @GetMapping(&quot;/promo/active&quot;)
+    public ResponseEntity&lt;PromoCode&gt; getActivePromoForUser(@RequestParam Long userId) {
+<span class="nc" id="L157">        return promoCodeService.getActiveUnusedPromoForUser(userId)</span>
+<span class="nc" id="L158">                .map(ResponseEntity::ok)</span>
+<span class="nc" id="L159">                .orElseGet(() -&gt; ResponseEntity.notFound().build());</span>
+    }
+
+    @GetMapping(&quot;/recommendations/plan&quot;)
+    public ResponseEntity&lt;PlanRecommendationDto&gt; getRecommendedPlan(
+            @RequestParam(required = false) String userRole,
+            @RequestParam(required = false) Long userId) {
+<span class="nc bnc" id="L166" title="All 2 branches missed.">        if (userId != null) {</span>
+<span class="nc" id="L167">            return ResponseEntity.ok(subscriptionService.recommendPlanWithAi(userRole, userId));</span>
+        }
+<span class="nc" id="L169">        return ResponseEntity.ok(subscriptionService.recommendPlan(userRole));</span>
+    }
+
+    @PostMapping(&quot;/promo&quot;)
+    public ResponseEntity&lt;?&gt; createPromoCode(@RequestParam Long userId, @RequestBody PromoCode promoCode) {
+        try {
+<span class="nc" id="L175">            return ResponseEntity.ok(promoCodeService.createPromoCode(userId, promoCode));</span>
+<span class="nc" id="L176">        } catch (IllegalStateException e) {</span>
+<span class="nc" id="L177">            return ResponseEntity.badRequest().body(Map.of(&quot;error&quot;, e.getMessage()));</span>
+        }
+    }
+
+    // ─── Subscription Endpoints ───────────────────────────────────────────────
+
+    @GetMapping(&quot;/subscriptions&quot;)
+    public ResponseEntity&lt;List&lt;Subscription&gt;&gt; getAll() {
+<span class="nc" id="L185">        return new ResponseEntity&lt;&gt;(subscriptionService.findAll(), HttpStatus.OK);</span>
+    }
+
+    @GetMapping(&quot;/subscriptions/user/{userId}&quot;)
+    public ResponseEntity&lt;List&lt;Subscription&gt;&gt; getByUserId(@PathVariable Long userId) {
+<span class="nc" id="L190">        return new ResponseEntity&lt;&gt;(subscriptionService.findByUserId(userId), HttpStatus.OK);</span>
+    }
+
+    @GetMapping(&quot;/subscriptions/user/{userId}/current&quot;)
+    public ResponseEntity&lt;Subscription&gt; getCurrentSubscription(@PathVariable Long userId) {
+<span class="nc" id="L195">        Optional&lt;Subscription&gt; subscription = subscriptionService.findActiveOrPausedForUser(userId);</span>
+<span class="nc" id="L196">        return subscription.map(value -&gt; new ResponseEntity&lt;&gt;(value, HttpStatus.OK))</span>
+<span class="nc" id="L197">                .orElseGet(() -&gt; new ResponseEntity&lt;&gt;(HttpStatus.NO_CONTENT));</span>
+    }
+
+    @GetMapping(&quot;/subscriptions/user/{userId}/status&quot;)
+    public ResponseEntity&lt;?&gt; getSubscriptionStatus(@PathVariable Long userId) {
+<span class="nc" id="L202">        String status = subscriptionService.checkSubscriptionStatus(userId);</span>
+
+<span class="nc" id="L204">        Optional&lt;Subscription&gt; optionalSub = subscriptionService.findLatestSubscription(userId);</span>
+<span class="nc" id="L205">        long daysLeft = 0;</span>
+<span class="nc bnc" id="L206" title="All 4 branches missed.">        if (optionalSub.isPresent() &amp;&amp; optionalSub.get().getEndDate() != null) {</span>
+<span class="nc" id="L207">            daysLeft = java.time.Duration.between(</span>
+<span class="nc" id="L208">                    java.time.LocalDateTime.now(),</span>
+<span class="nc" id="L209">                    optionalSub.get().getEndDate()</span>
+<span class="nc" id="L210">            ).toDays();</span>
+        }
+
+<span class="nc" id="L213">        Map&lt;String, Object&gt; body = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L214">        body.put(&quot;status&quot;, status);</span>
+<span class="nc" id="L215">        body.put(&quot;daysLeft&quot;, daysLeft);</span>
+<span class="nc" id="L216">        optionalSub.ifPresent(s -&gt; {</span>
+<span class="nc bnc" id="L217" title="All 2 branches missed.">            if (s.getPauseEndAt() != null) {</span>
+<span class="nc" id="L218">                body.put(&quot;pauseEndAt&quot;, s.getPauseEndAt().toString());</span>
+            }
+<span class="nc bnc" id="L220" title="All 4 branches missed.">            if (&quot;PAUSED&quot;.equalsIgnoreCase(s.getStatus()) &amp;&amp; s.getPauseEndAt() != null) {</span>
+<span class="nc" id="L221">                long untilPauseEnd = java.time.Duration.between(</span>
+<span class="nc" id="L222">                        java.time.LocalDateTime.now(), s.getPauseEndAt()).toDays();</span>
+<span class="nc" id="L223">                body.put(&quot;pauseDaysRemaining&quot;, Math.max(0, untilPauseEnd));</span>
+            }
+<span class="nc" id="L225">        });</span>
+<span class="nc" id="L226">        return ResponseEntity.ok(body);</span>
+    }
+
+    @GetMapping(&quot;/loyalty/{userId}&quot;)
+    public ResponseEntity&lt;LoyaltyStatusDto&gt; getLoyaltyStatus(@PathVariable Long userId) {
+<span class="nc" id="L231">        return ResponseEntity.ok(loyaltyService.getStatus(userId));</span>
+    }
+
+    @PostMapping(&quot;/loyalty/{userId}/redeem-preview&quot;)
+    public ResponseEntity&lt;?&gt; redeemPreview(@PathVariable Long userId, @RequestParam(defaultValue = &quot;true&quot;) boolean redeemPoints) {
+        try {
+<span class="nc" id="L237">            int percent = loyaltyService.previewRedeemPercent(userId, redeemPoints);</span>
+<span class="nc bnc" id="L238" title="All 2 branches missed.">            return ResponseEntity.ok(Map.of(</span>
+<span class="nc" id="L239">                    &quot;redeemApplied&quot;, percent &gt; 0,</span>
+<span class="nc" id="L240">                    &quot;discountPercent&quot;, percent,</span>
+<span class="nc bnc" id="L241" title="All 2 branches missed.">                    &quot;pointsCost&quot;, percent &gt; 0 ? LoyaltyService.REDEEM_POINTS_COST : 0</span>
+            ));
+<span class="nc" id="L243">        } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L244">            return ResponseEntity.badRequest().body(Map.of(&quot;error&quot;, e.getMessage()));</span>
+        }
+    }
+
+    @PostMapping(&quot;/subscriptions/{id}/pause&quot;)
+    public ResponseEntity&lt;?&gt; pauseSubscription(
+            @PathVariable Long id,
+            @RequestParam Long userId,
+            @RequestBody PauseSubscriptionRequest body) {
+        try {
+<span class="nc" id="L254">            Subscription updated = subscriptionService.pauseSubscription(id, userId, body.getPauseDays());</span>
+<span class="nc" id="L255">            return ResponseEntity.ok(updated);</span>
+<span class="nc" id="L256">        } catch (IllegalArgumentException | IllegalStateException e) {</span>
+<span class="nc" id="L257">            return ResponseEntity.badRequest().body(Map.of(&quot;error&quot;, e.getMessage()));</span>
+        }
+    }
+
+    @PostMapping(&quot;/subscriptions/{id}/resume&quot;)
+    public ResponseEntity&lt;?&gt; resumeSubscription(@PathVariable Long id, @RequestParam Long userId) {
+        try {
+<span class="nc" id="L264">            Subscription updated = subscriptionService.resumeSubscriptionEarly(id, userId);</span>
+<span class="nc" id="L265">            return ResponseEntity.ok(updated);</span>
+<span class="nc" id="L266">        } catch (IllegalArgumentException | IllegalStateException e) {</span>
+<span class="nc" id="L267">            return ResponseEntity.badRequest().body(Map.of(&quot;error&quot;, e.getMessage()));</span>
+        }
+    }
+
+    // ─── Stripe : Create checkout session ────────────────────────────────────
+
+    @PostMapping(&quot;/subscriptions&quot;)
+    public ResponseEntity&lt;?&gt; createSubscription(@RequestBody subb subs, HttpServletRequest request) {
+        try {
+<span class="nc" id="L276">            String liveTok = subs.getLivenessToken();</span>
+<span class="nc bnc" id="L277" title="All 4 branches missed.">            if (liveTok == null || liveTok.isBlank()) {</span>
+<span class="nc" id="L278">                liveTok = request.getHeader(&quot;X-Liveness-Token&quot;);</span>
+            }
+<span class="nc" id="L280">            ResponseEntity&lt;Map&lt;String, String&gt;&gt; livenessDenied =</span>
+<span class="nc" id="L281">                    livenessPaymentGuard.check(liveTok, subs.getUserId());</span>
+<span class="nc bnc" id="L282" title="All 2 branches missed.">            if (livenessDenied != null) {</span>
+<span class="nc" id="L283">                return livenessDenied;</span>
+            }
+
+<span class="nc" id="L286">            PricingPlan plan = pricingPlanService.findById(subs.getPlanId())</span>
+<span class="nc" id="L287">                    .orElseThrow(() -&gt; new IllegalArgumentException(&quot;Pricing plan not found&quot;));</span>
+
+<span class="nc bnc" id="L289" title="All 4 branches missed.">            if (plan.getMonthlyPrice() == null || plan.getYearlyPrice() == null) {</span>
+<span class="nc" id="L290">                return ResponseEntity.badRequest().body(Map.of(</span>
+                        &quot;error&quot;, &quot;Pricing plan has missing prices — set monthly and yearly amounts in admin.&quot;));
+            }
+
+<span class="nc" id="L294">            Stripe.apiKey = stripeSecretKey;</span>
+<span class="nc bnc" id="L295" title="All 6 branches missed.">            if (stripeSecretKey == null || stripeSecretKey.isBlank() || stripeSecretKey.contains(&quot;YOUR_&quot;)) {</span>
+<span class="nc" id="L296">                log.error(&quot;Stripe secret key is missing or placeholder&quot;);</span>
+<span class="nc" id="L297">                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(</span>
+                        &quot;error&quot;, &quot;Stripe is not configured (stripe.secret.key). Set a valid key in application.properties.&quot;));
+            }
+
+            double amount;
+<span class="nc bnc" id="L302" title="All 2 branches missed.">            if (&quot;MONTHLY&quot;.equalsIgnoreCase(subs.getBillingCycle())) {</span>
+<span class="nc" id="L303">                amount = plan.getMonthlyPrice();</span>
+<span class="nc bnc" id="L304" title="All 2 branches missed.">            } else if (&quot;YEARLY&quot;.equalsIgnoreCase(subs.getBillingCycle())) {</span>
+<span class="nc" id="L305">                amount = plan.getYearlyPrice();</span>
+            } else {
+<span class="nc" id="L307">                return ResponseEntity.badRequest().body(Map.of(</span>
+                        &quot;error&quot;, &quot;Invalid billing cycle — use MONTHLY or YEARLY&quot;));
+            }
+
+<span class="nc" id="L311">            String promoForMetadata = &quot;&quot;;</span>
+<span class="nc bnc" id="L312" title="All 4 branches missed.">            if (subs.getPromoCode() != null &amp;&amp; !subs.getPromoCode().isBlank()) {</span>
+<span class="nc" id="L313">                double baseBeforePromo = amount;</span>
+<span class="nc" id="L314">                PromoValidationDto pv = promoCodeService.validateDetailed(</span>
+<span class="nc" id="L315">                        subs.getPromoCode().trim(),</span>
+<span class="nc" id="L316">                        subs.getUserId(),</span>
+<span class="nc" id="L317">                        subs.getUserRole(),</span>
+<span class="nc" id="L318">                        subs.getPlanId(),</span>
+<span class="nc" id="L319">                        subs.getBillingCycle(),</span>
+<span class="nc" id="L320">                        baseBeforePromo);</span>
+<span class="nc bnc" id="L321" title="All 2 branches missed.">                if (!pv.isValid()) {</span>
+<span class="nc" id="L322">                    return ResponseEntity.badRequest().body(Map.of(</span>
+<span class="nc bnc" id="L323" title="All 2 branches missed.">                            &quot;error&quot;, pv.getMessage() != null ? pv.getMessage() : &quot;Code promo invalide&quot;));</span>
+                }
+<span class="nc" id="L325">                Optional&lt;PromoCode&gt; promoOpt = promoCodeService.findNormalized(subs.getPromoCode().trim());</span>
+<span class="nc bnc" id="L326" title="All 2 branches missed.">                if (promoOpt.isEmpty()) {</span>
+<span class="nc" id="L327">                    return ResponseEntity.badRequest().body(Map.of(&quot;error&quot;, &quot;Code promo introuvable&quot;));</span>
+                }
+<span class="nc" id="L329">                PromoCode promoCode = promoOpt.get();</span>
+<span class="nc" id="L330">                amount = promoCodeService.applyDiscountToAmount(baseBeforePromo, promoCode);</span>
+<span class="nc" id="L331">                promoForMetadata = promoCode.getCode();</span>
+            }
+
+<span class="nc" id="L334">            int pointsToConsume = 0;</span>
+<span class="nc" id="L335">            log.info(&quot;[SUBSCRIPTION] Processing payment for userId: {}. RedeemPoints requested: {}&quot;, subs.getUserId(), subs.getRedeemPoints());</span>
+            
+<span class="nc bnc" id="L337" title="All 2 branches missed.">            if (Boolean.TRUE.equals(subs.getRedeemPoints())) {</span>
+                try {
+<span class="nc" id="L339">                    int percent = loyaltyService.previewRedeemPercent(subs.getUserId(), true);</span>
+<span class="nc" id="L340">                    double discount = Math.round((amount * percent / 100.0) * 100.0) / 100.0;</span>
+<span class="nc" id="L341">                    amount = amount - discount;</span>
+<span class="nc" id="L342">                    pointsToConsume = LoyaltyService.REDEEM_POINTS_COST;</span>
+<span class="nc" id="L343">                    log.info(&quot;[LOYALTY] Discount of {}% applied ({} EUR). New total: {}&quot;, percent, discount, amount);</span>
+<span class="nc" id="L344">                } catch (Exception e) {</span>
+<span class="nc" id="L345">                    log.error(&quot;[LOYALTY] Reduction failed for user {}: {}&quot;, subs.getUserId(), e.getMessage());</span>
+<span class="nc" id="L346">                    return ResponseEntity.badRequest().body(Map.of(&quot;error&quot;, &quot;Points de fidélité insuffisants ou invalides.&quot;));</span>
+<span class="nc" id="L347">                }</span>
+            }
+
+<span class="nc" id="L350">            long amountInCents = Math.round(amount * 100);</span>
+<span class="nc" id="L351">            log.info(&quot;[STRIPE] Final session amount: {} cents&quot;, amountInCents);</span>
+<span class="nc bnc" id="L352" title="All 2 branches missed.">            if (amountInCents &lt; STRIPE_MIN_AMOUNT_CENTS_EUR) {</span>
+<span class="nc" id="L353">                return ResponseEntity.badRequest().body(Map.of(</span>
+<span class="nc" id="L354">                        &quot;error&quot;, String.format(</span>
+                                &quot;Amount %.2f EUR (%d cents) is below Stripe minimum for EUR (%d cents). Raise plan price or reduce discount.&quot;,
+<span class="nc" id="L356">                                amount, amountInCents, STRIPE_MIN_AMOUNT_CENTS_EUR)));</span>
+            }
+
+<span class="nc bnc" id="L359" title="All 4 branches missed.">            String planLabel = plan.getName() != null &amp;&amp; !plan.getName().isBlank() ? plan.getName() : &quot;Subscription&quot;;</span>
+
+<span class="nc" id="L361">            SessionCreateParams.Builder paramsBuilder = SessionCreateParams.builder()</span>
+<span class="nc" id="L362">                    .setMode(SessionCreateParams.Mode.PAYMENT)</span>
+<span class="nc" id="L363">                    .setSuccessUrl(&quot;http://localhost:4200/enterprise/subscription/success?session_id={CHECKOUT_SESSION_ID}&quot;</span>
+<span class="nc" id="L364">                            + &quot;&amp;userId=&quot; + subs.getUserId()</span>
+<span class="nc" id="L365">                            + &quot;&amp;planId=&quot; + subs.getPlanId()</span>
+<span class="nc" id="L366">                            + &quot;&amp;billingCycle=&quot; + subs.getBillingCycle()</span>
+<span class="nc bnc" id="L367" title="All 2 branches missed.">                            + &quot;&amp;userRole=&quot; + (subs.getUserRole() != null ? subs.getUserRole() : &quot;&quot;))</span>
+<span class="nc" id="L368">                    .setCancelUrl(&quot;http://localhost:4200/enterprise/subscription&quot;)</span>
+<span class="nc" id="L369">                    .putMetadata(&quot;userId&quot;, String.valueOf(subs.getUserId()))</span>
+<span class="nc" id="L370">                    .putMetadata(&quot;planId&quot;, String.valueOf(subs.getPlanId()))</span>
+<span class="nc bnc" id="L371" title="All 2 branches missed.">                    .putMetadata(&quot;billingCycle&quot;, subs.getBillingCycle() != null ? subs.getBillingCycle() : &quot;&quot;)</span>
+<span class="nc" id="L372">                    .addLineItem(</span>
+<span class="nc" id="L373">                            SessionCreateParams.LineItem.builder()</span>
+<span class="nc" id="L374">                                    .setQuantity(1L)</span>
+<span class="nc" id="L375">                                    .setPriceData(</span>
+<span class="nc" id="L376">                                            SessionCreateParams.LineItem.PriceData.builder()</span>
+<span class="nc" id="L377">                                                    .setCurrency(&quot;eur&quot;)</span>
+<span class="nc" id="L378">                                                    .setUnitAmount(amountInCents)</span>
+<span class="nc" id="L379">                                                    .setProductData(</span>
+<span class="nc" id="L380">                                                            SessionCreateParams.LineItem.PriceData.ProductData.builder()</span>
+<span class="nc" id="L381">                                                                    .setName(planLabel)</span>
+<span class="nc" id="L382">                                                                    .build())</span>
+<span class="nc" id="L383">                                                    .build())</span>
+<span class="nc" id="L384">                                    .build());</span>
+
+<span class="nc bnc" id="L386" title="All 2 branches missed.">            if (!promoForMetadata.isBlank()) {</span>
+<span class="nc" id="L387">                paramsBuilder.putMetadata(&quot;promoCode&quot;, promoForMetadata);</span>
+            }
+<span class="nc bnc" id="L389" title="All 2 branches missed.">            if (pointsToConsume &gt; 0) {</span>
+<span class="nc" id="L390">                paramsBuilder.putMetadata(&quot;pointsToConsume&quot;, String.valueOf(pointsToConsume));</span>
+            }
+
+<span class="nc" id="L393">            Session session = Session.create(paramsBuilder.build());</span>
+
+<span class="nc" id="L395">            return ResponseEntity.ok(Map.of(</span>
+<span class="nc" id="L396">                    &quot;sessionId&quot;, session.getId(),</span>
+<span class="nc" id="L397">                    &quot;url&quot;, session.getUrl()</span>
+            ));
+<span class="nc" id="L399">        } catch (StripeException e) {</span>
+<span class="nc" id="L400">            log.warn(&quot;Stripe checkout session failed: {}&quot;, e.getMessage());</span>
+<span class="nc" id="L401">            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of(</span>
+<span class="nc" id="L402">                    &quot;error&quot;, &quot;Stripe error: &quot; + e.getMessage(),</span>
+<span class="nc bnc" id="L403" title="All 2 branches missed.">                    &quot;stripeCode&quot;, e.getCode() != null ? e.getCode() : &quot;&quot;));</span>
+<span class="nc" id="L404">        } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L405">            return ResponseEntity.badRequest().body(Map.of(&quot;error&quot;, e.getMessage()));</span>
+<span class="nc" id="L406">        } catch (Exception e) {</span>
+<span class="nc" id="L407">            log.error(&quot;createSubscription failed&quot;, e);</span>
+<span class="nc" id="L408">            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(</span>
+<span class="nc bnc" id="L409" title="All 2 branches missed.">                    &quot;error&quot;, e.getMessage() != null ? e.getMessage() : &quot;Unexpected error&quot;));</span>
+        }
+    }
+
+    // ─── Stripe : Confirm payment and persist subscription ───────────────────
+
+    @GetMapping(&quot;/payment/confirm&quot;)
+    public ResponseEntity&lt;?&gt; confirmSubscription(
+            HttpServletRequest httpRequest,
+            @RequestParam String session_id,
+            @RequestParam Long userId,
+            @RequestParam Long planId,
+            @RequestParam String billingCycle,
+            @RequestParam(required = false) String userRole) {
+
+        try {
+<span class="nc bnc" id="L425" title="All 6 branches missed.">            if (stripeSecretKey == null || stripeSecretKey.isBlank() || stripeSecretKey.contains(&quot;YOUR_&quot;)) {</span>
+<span class="nc" id="L426">                log.error(&quot;confirmSubscription: Stripe secret key missing or placeholder&quot;);</span>
+<span class="nc" id="L427">                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(</span>
+                        &quot;error&quot;, &quot;Stripe is not configured (stripe.secret.key).&quot;));
+            }
+
+<span class="nc bnc" id="L431" title="All 2 branches missed.">            String cycle = billingCycle != null ? billingCycle.trim() : &quot;&quot;;</span>
+<span class="nc bnc" id="L432" title="All 2 branches missed.">            if (cycle.isEmpty()</span>
+<span class="nc bnc" id="L433" title="All 4 branches missed.">                    || (!&quot;MONTHLY&quot;.equalsIgnoreCase(cycle) &amp;&amp; !&quot;YEARLY&quot;.equalsIgnoreCase(cycle))) {</span>
+<span class="nc" id="L434">                return ResponseEntity.badRequest().body(Map.of(</span>
+                        &quot;error&quot;, &quot;billingCycle must be MONTHLY or YEARLY&quot;));
+            }
+<span class="nc" id="L437">            cycle = cycle.toUpperCase();</span>
+
+<span class="nc" id="L439">            Stripe.apiKey = stripeSecretKey;</span>
+<span class="nc" id="L440">            Session session = Session.retrieve(session_id);</span>
+
+<span class="nc" id="L442">            String payStatus = session.getPaymentStatus();</span>
+<span class="nc" id="L443">            String sessionStatus = session.getStatus();</span>
+<span class="nc" id="L444">            log.info(&quot;Stripe session {} status={} payment_status={}&quot;, session_id, sessionStatus, payStatus);</span>
+
+<span class="nc bnc" id="L446" title="All 4 branches missed.">            boolean completeOk = sessionStatus != null &amp;&amp; &quot;complete&quot;.equalsIgnoreCase(sessionStatus.trim());</span>
+<span class="nc bnc" id="L447" title="All 2 branches missed.">            boolean paidOk = payStatus != null &amp;&amp; (</span>
+<span class="nc bnc" id="L448" title="All 2 branches missed.">                    &quot;paid&quot;.equalsIgnoreCase(payStatus.trim())</span>
+<span class="nc bnc" id="L449" title="All 2 branches missed.">                            || &quot;no_payment_required&quot;.equalsIgnoreCase(payStatus.trim()));</span>
+
+<span class="nc bnc" id="L451" title="All 4 branches missed.">            if (!completeOk || !paidOk) {</span>
+<span class="nc" id="L452">                return ResponseEntity.badRequest().body(Map.of(</span>
+                        &quot;error&quot;, &quot;Payment not completed&quot;,
+<span class="nc bnc" id="L454" title="All 2 branches missed.">                        &quot;paymentStatus&quot;, payStatus != null ? payStatus : &quot;&quot;,</span>
+<span class="nc bnc" id="L455" title="All 2 branches missed.">                        &quot;sessionStatus&quot;, sessionStatus != null ? sessionStatus : &quot;&quot;));</span>
+            }
+
+<span class="nc" id="L458">            Optional&lt;esprit.subscription.entity.PaymentRecord&gt; existing =</span>
+<span class="nc" id="L459">                    subscriptionService.findPaymentByExternalRef(session_id);</span>
+<span class="nc bnc" id="L460" title="All 4 branches missed.">            if (existing.isPresent() &amp;&amp; existing.get().getSubscriptionId() != null) {</span>
+<span class="nc" id="L461">                Long sid = existing.get().getSubscriptionId();</span>
+<span class="nc" id="L462">                Subscription already = subscriptionService.findById(sid).orElse(null);</span>
+<span class="nc bnc" id="L463" title="All 2 branches missed.">                if (already != null) {</span>
+<span class="nc" id="L464">                    return ResponseEntity.ok(subscriptionToJsonMap(already));</span>
+                }
+            }
+
+<span class="nc" id="L468">            PricingPlan plan = pricingPlanService.findById(planId)</span>
+<span class="nc" id="L469">                    .orElseThrow(() -&gt; new IllegalArgumentException(&quot;Pricing plan not found — id=&quot; + planId));</span>
+
+<span class="nc" id="L471">            Subscription subscription = new Subscription();</span>
+<span class="nc" id="L472">            subscription.setUserId(userId);</span>
+<span class="nc" id="L473">            subscription.setPricingPlan(plan);</span>
+<span class="nc" id="L474">            subscription.setBillingCycle(cycle);</span>
+<span class="nc bnc" id="L475" title="All 4 branches missed.">            if (userRole != null &amp;&amp; !userRole.isBlank()) {</span>
+<span class="nc" id="L476">                subscription.setUserRole(userRole.trim());</span>
+            }
+
+<span class="nc" id="L479">            Subscription created = subscriptionService.subscribe(subscription);</span>
+<span class="nc" id="L480">            Long createdId = created.getId();</span>
+
+<span class="nc" id="L482">            String stripeSub = session.getSubscription();</span>
+<span class="nc bnc" id="L483" title="All 4 branches missed.">            if (stripeSub != null &amp;&amp; !stripeSub.isBlank()) {</span>
+                try {
+<span class="nc" id="L485">                    created = subscriptionService.attachStripeSubscriptionId(createdId, stripeSub);</span>
+<span class="nc" id="L486">                } catch (Exception ex) {</span>
+<span class="nc" id="L487">                    log.warn(&quot;Could not attach Stripe subscription id to local subscription {}: {}&quot;, createdId, ex.getMessage());</span>
+<span class="nc" id="L488">                }</span>
+            }
+
+            try {
+<span class="nc" id="L492">                fraudDetectionService.analyseSubscription(created);</span>
+<span class="nc" id="L493">            } catch (Exception ex) {</span>
+<span class="nc" id="L494">                log.warn(&quot;Fraud analysis skipped (subscription still saved): {}&quot;, ex.getMessage());</span>
+<span class="nc" id="L495">            }</span>
+
+<span class="nc" id="L497">            Map&lt;String, String&gt; meta = session.getMetadata();</span>
+<span class="nc bnc" id="L498" title="All 2 branches missed.">            if (meta != null) {</span>
+<span class="nc" id="L499">                String code = meta.get(&quot;promoCode&quot;);</span>
+<span class="nc bnc" id="L500" title="All 4 branches missed.">                if (code != null &amp;&amp; !code.isBlank()) {</span>
+                    try {
+<span class="nc" id="L502">                        promoCodeService.validate(code).ifPresent(</span>
+<span class="nc" id="L503">                                p -&gt; promoCodeService.recordUsage(p, userId, createdId));</span>
+<span class="nc" id="L504">                    } catch (Exception ex) {</span>
+<span class="nc" id="L505">                        log.warn(&quot;Promo usage not recorded: {}&quot;, ex.getMessage());</span>
+<span class="nc" id="L506">                    }</span>
+                }
+            }
+
+<span class="nc" id="L510">            int pointsToConsume = 0;</span>
+<span class="nc bnc" id="L511" title="All 4 branches missed.">            if (meta != null &amp;&amp; meta.get(&quot;pointsToConsume&quot;) != null) {</span>
+                try {
+<span class="nc" id="L513">                    pointsToConsume = Integer.parseInt(meta.get(&quot;pointsToConsume&quot;));</span>
+<span class="nc" id="L514">                } catch (NumberFormatException ignored) {</span>
+<span class="nc" id="L515">                    pointsToConsume = 0;</span>
+<span class="nc" id="L516">                }</span>
+            }
+
+<span class="nc" id="L519">            LoyaltyService.LoyaltyRewardResult loyaltyResult =</span>
+<span class="nc" id="L520">                    loyaltyService.applySuccessfulRenewal(userId, pointsToConsume);</span>
+
+<span class="nc bnc" id="L522" title="All 4 branches missed.">            if (loyaltyResult.milestoneReached() &amp;&amp; loyaltyResult.milestoneDiscountPercent() &gt; 0) {</span>
+                try {
+<span class="nc" id="L524">                    var coupon = stripeLoyaltyCouponService.createMilestoneCoupon(</span>
+<span class="nc" id="L525">                            userId, loyaltyResult.milestoneMonth(), loyaltyResult.milestoneDiscountPercent());</span>
+<span class="nc" id="L526">                    UserLoyaltyAccount account = loyaltyResult.account();</span>
+<span class="nc" id="L527">                    account.setLastMilestonePromoCode(coupon.code());</span>
+<span class="nc" id="L528">                    account.setLastMilestoneStripeCouponId(coupon.couponId());</span>
+<span class="nc" id="L529">                    account.setLastMilestoneStripePromotionCodeId(coupon.promotionCodeId());</span>
+<span class="nc" id="L530">                    subscriptionService.saveLoyaltyAccount(account);</span>
+
+<span class="nc" id="L532">                    String email = null;</span>
+<span class="nc" id="L533">                    String name = &quot;Utilisateur&quot;;</span>
+                    try {
+<span class="nc" id="L535">                        var userProfile = subscriptionService.getUserProfile(userId);</span>
+<span class="nc bnc" id="L536" title="All 2 branches missed.">                        if (userProfile != null) {</span>
+<span class="nc" id="L537">                            email = userProfile.getEmail();</span>
+<span class="nc bnc" id="L538" title="All 4 branches missed.">                            if (userProfile.getName() != null &amp;&amp; !userProfile.getName().isBlank()) {</span>
+<span class="nc" id="L539">                                name = userProfile.getName();</span>
+                            }
+                        }
+<span class="nc" id="L542">                    } catch (Exception ignored) {</span>
+<span class="nc" id="L543">                    }</span>
+<span class="nc bnc" id="L544" title="All 4 branches missed.">                    if (email == null || email.isBlank()) {</span>
+                        try {
+<span class="nc" id="L546">                            var company = subscriptionService.getCompanyProfile(userId);</span>
+<span class="nc bnc" id="L547" title="All 2 branches missed.">                            if (company != null) {</span>
+<span class="nc" id="L548">                                email = company.getEmail();</span>
+<span class="nc bnc" id="L549" title="All 4 branches missed.">                                if (company.getName() != null &amp;&amp; !company.getName().isBlank()) {</span>
+<span class="nc" id="L550">                                    name = company.getName();</span>
+                                }
+                            }
+<span class="nc" id="L553">                        } catch (Exception ignored) {</span>
+<span class="nc" id="L554">                        }</span>
+                    }
+<span class="nc bnc" id="L556" title="All 4 branches missed.">                    if (email != null &amp;&amp; !email.isBlank()) {</span>
+<span class="nc" id="L557">                        emailService.sendLoyaltyMilestoneEmail(</span>
+                                email,
+                                name,
+<span class="nc" id="L560">                                loyaltyResult.account().getLoyaltyTier().name(),</span>
+<span class="nc" id="L561">                                loyaltyResult.milestoneMonth(),</span>
+<span class="nc" id="L562">                                loyaltyResult.milestoneDiscountPercent(),</span>
+<span class="nc" id="L563">                                coupon.code());</span>
+                    }
+<span class="nc" id="L565">                } catch (Exception ex) {</span>
+<span class="nc" id="L566">                    log.warn(&quot;Loyalty milestone reward creation failed: {}&quot;, ex.getMessage());</span>
+<span class="nc" id="L567">                }</span>
+            }
+
+<span class="nc" id="L570">            subscriptionService.recordSuccessfulCheckoutPayment(</span>
+                    userId,
+                    createdId,
+                    session_id,
+<span class="nc bnc" id="L574" title="All 2 branches missed.">                    created.getPricingPlan() != null ? created.getPricingPlan().getName() : null,</span>
+<span class="nc" id="L575">                    created.getBillingCycle(),</span>
+<span class="nc" id="L576">                    created.getEndDate());</span>
+
+<span class="nc" id="L578">            Subscription forJson = subscriptionService.findById(createdId).orElse(created);</span>
+            try {
+<span class="nc" id="L580">                geoEventNotifier.notifyPaymentAsync(userId, httpRequest);</span>
+<span class="nc" id="L581">            } catch (Exception ex) {</span>
+<span class="nc" id="L582">                log.debug(&quot;Geo event after payment skipped: {}&quot;, ex.getMessage());</span>
+<span class="nc" id="L583">            }</span>
+<span class="nc" id="L584">            return ResponseEntity.ok(subscriptionToJsonMap(forJson));</span>
+<span class="nc" id="L585">        } catch (StripeException e) {</span>
+<span class="nc" id="L586">            log.warn(&quot;Stripe session retrieve failed: {}&quot;, e.getMessage());</span>
+<span class="nc" id="L587">            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of(</span>
+<span class="nc" id="L588">                    &quot;error&quot;, &quot;Stripe error: &quot; + e.getMessage()));</span>
+<span class="nc" id="L589">        } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L590">            return ResponseEntity.badRequest().body(Map.of(&quot;error&quot;, e.getMessage()));</span>
+<span class="nc" id="L591">        } catch (DataIntegrityViolationException e) {</span>
+<span class="nc" id="L592">            Throwable cause = e.getMostSpecificCause();</span>
+<span class="nc bnc" id="L593" title="All 2 branches missed.">            String detail = cause != null ? cause.getMessage() : e.getMessage();</span>
+<span class="nc" id="L594">            log.error(&quot;confirmSubscription DB constraint violation: {}&quot;, detail, e);</span>
+<span class="nc" id="L595">            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(</span>
+                    &quot;error&quot;, &quot;Subscription could not be saved — check subscriptions table (AUTO_INCREMENT, foreign keys).&quot;,
+<span class="nc bnc" id="L597" title="All 2 branches missed.">                    &quot;detail&quot;, detail != null ? detail : &quot;unknown&quot;));</span>
+<span class="nc" id="L598">        } catch (Exception e) {</span>
+<span class="nc" id="L599">            log.error(&quot;confirmSubscription failed&quot;, e);</span>
+<span class="nc" id="L600">            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(</span>
+<span class="nc bnc" id="L601" title="All 2 branches missed.">                    &quot;error&quot;, e.getMessage() != null ? e.getMessage() : &quot;Unexpected error&quot;));</span>
+        }
+    }
+
+    // ─── Cancel / Delete subscription ────────────────────────────────────────
+
+    @PutMapping(&quot;/subscriptions/{id}/cancel&quot;)
+    public ResponseEntity&lt;Subscription&gt; cancelSubscription(@PathVariable Long id) {
+<span class="nc" id="L609">        Subscription cancelled = subscriptionService.cancel(id);</span>
+<span class="nc bnc" id="L610" title="All 2 branches missed.">        return cancelled != null</span>
+<span class="nc" id="L611">                ? new ResponseEntity&lt;&gt;(cancelled, HttpStatus.OK)</span>
+<span class="nc" id="L612">                : new ResponseEntity&lt;&gt;(HttpStatus.NOT_FOUND);</span>
+    }
+
+    @PatchMapping(&quot;/subscriptions/{id}/auto-renew&quot;)
+    public ResponseEntity&lt;Subscription&gt; patchAutoRenew(
+            @PathVariable Long id,
+            @RequestParam(required = false) Boolean enabled) {
+        try {
+<span class="nc bnc" id="L620" title="All 2 branches missed.">            if (enabled != null) {</span>
+<span class="nc" id="L621">                return ResponseEntity.ok(subscriptionService.setAutoRenew(id, enabled));</span>
+            }
+<span class="nc" id="L623">            return ResponseEntity.ok(subscriptionService.toggleAutoRenew(id));</span>
+<span class="nc" id="L624">        } catch (RuntimeException e) {</span>
+<span class="nc" id="L625">            return ResponseEntity.notFound().build();</span>
+        }
+    }
+
+    @DeleteMapping(&quot;/subscriptions/{id}&quot;)
+    public ResponseEntity&lt;Void&gt; deleteSubscription(@PathVariable Long id) {
+<span class="nc" id="L631">        subscriptionService.delete(id);</span>
+<span class="nc" id="L632">        return new ResponseEntity&lt;&gt;(HttpStatus.OK);</span>
+    }
+
+    // ─── Fraud Alert Endpoints ────────────────────────────────────────────────
+
+    @GetMapping(&quot;/fraud/alerts&quot;)
+    public ResponseEntity&lt;List&lt;FraudAlert&gt;&gt; getFraudAlerts(
+            @RequestParam(required = false) String riskLevel) {
+<span class="nc bnc" id="L640" title="All 4 branches missed.">        List&lt;FraudAlert&gt; alerts = riskLevel != null &amp;&amp; !riskLevel.isBlank()</span>
+<span class="nc" id="L641">                ? fraudDetectionService.findByRiskLevel(riskLevel)</span>
+<span class="nc" id="L642">                : fraudDetectionService.findAll();</span>
+<span class="nc" id="L643">        return ResponseEntity.ok(alerts);</span>
+    }
+
+    @PatchMapping(&quot;/fraud/alerts/{id}/resolve&quot;)
+    public ResponseEntity&lt;FraudAlert&gt; resolveFraudAlert(@PathVariable Long id) {
+        try {
+<span class="nc" id="L649">            return ResponseEntity.ok(fraudDetectionService.resolve(id));</span>
+<span class="nc" id="L650">        } catch (RuntimeException e) {</span>
+<span class="nc" id="L651">            return ResponseEntity.notFound().build();</span>
+        }
+    }
+
+    // ─── Revenue &amp; intelligence (admin prévisions) ───────────────────────────
+
+    @GetMapping(&quot;/revenue/forecast&quot;)
+    public ResponseEntity&lt;RevenueForecastDto&gt; getRevenueForecast() {
+<span class="nc" id="L659">        return ResponseEntity.ok(revenueIntelligenceService.buildForecast());</span>
+    }
+
+    /**
+     * Déclenche un rafraîchissement des agrégats intelligence côté serveur
+     * (les prévisions sont recalculées à partir des abonnements à chaque lecture).
+     */
+    @GetMapping(&quot;/intelligence/refresh&quot;)
+    public ResponseEntity&lt;Map&lt;String, Object&gt;&gt; refreshIntelligence() {
+<span class="nc" id="L668">        Instant refreshedAt = revenueIntelligenceService.refreshAggregates();</span>
+<span class="nc" id="L669">        Map&lt;String, Object&gt; body = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L670">        body.put(&quot;status&quot;, &quot;ok&quot;);</span>
+<span class="nc" id="L671">        body.put(&quot;refreshedAt&quot;, refreshedAt.toString());</span>
+<span class="nc" id="L672">        return ResponseEntity.ok(body);</span>
+    }
+
+    // ─── Stats Endpoints ──────────────────────────────────────────────────────
+
+    @GetMapping(&quot;/subscriptions/stats&quot;)
+    public ResponseEntity&lt;Map&lt;String, Object&gt;&gt; getSubscriptionStats() {
+<span class="nc" id="L679">        Map&lt;String, Object&gt; stats = new HashMap&lt;&gt;();</span>
+
+        try {
+<span class="nc" id="L682">            stats.put(&quot;totalSubscriptions&quot;,     subscriptionService.countAll());</span>
+<span class="nc" id="L683">            stats.put(&quot;activeSubscriptions&quot;,    subscriptionService.countByStatus(&quot;ACTIVE&quot;));</span>
+<span class="nc" id="L684">            stats.put(&quot;cancelledSubscriptions&quot;, subscriptionService.countByStatus(&quot;CANCELLED&quot;));</span>
+<span class="nc" id="L685">            stats.put(&quot;expiredSubscriptions&quot;,   subscriptionService.countByStatus(&quot;EXPIRED&quot;));</span>
+
+<span class="nc" id="L687">            List&lt;Object[]&gt; byCycle = subscriptionService.countByBillingCycle();</span>
+<span class="nc" id="L688">            Map&lt;String, Long&gt; cycleMap = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L689" title="All 2 branches missed.">            for (Object[] row : byCycle) {</span>
+<span class="nc bnc" id="L690" title="All 2 branches missed.">                if (row[0] != null) cycleMap.put((String) row[0], (Long) row[1]);</span>
+<span class="nc" id="L691">            }</span>
+<span class="nc" id="L692">            stats.put(&quot;byBillingCycle&quot;, cycleMap);</span>
+
+<span class="nc" id="L694">            List&lt;Object[]&gt; byRole = subscriptionService.countByUserRole();</span>
+<span class="nc" id="L695">            Map&lt;String, Long&gt; roleMap = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L696" title="All 2 branches missed.">            for (Object[] row : byRole) {</span>
+<span class="nc bnc" id="L697" title="All 2 branches missed.">                if (row[0] != null) roleMap.put((String) row[0], (Long) row[1]);</span>
+<span class="nc" id="L698">            }</span>
+<span class="nc" id="L699">            stats.put(&quot;byUserRole&quot;, roleMap);</span>
+
+<span class="nc" id="L701">            List&lt;Object[]&gt; byStatus = subscriptionService.countGroupByStatus();</span>
+<span class="nc" id="L702">            Map&lt;String, Long&gt; statusMap = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L703" title="All 2 branches missed.">            for (Object[] row : byStatus) {</span>
+<span class="nc bnc" id="L704" title="All 2 branches missed.">                if (row[0] != null) statusMap.put((String) row[0], (Long) row[1]);</span>
+<span class="nc" id="L705">            }</span>
+<span class="nc" id="L706">            stats.put(&quot;byStatus&quot;, statusMap);</span>
+
+<span class="nc" id="L708">            double monthly = subscriptionService.calculateMonthlyRevenue();</span>
+<span class="nc" id="L709">            double yearly  = subscriptionService.calculateYearlyRevenue();</span>
+<span class="nc" id="L710">            stats.put(&quot;monthlyRevenue&quot;, Math.round(monthly * 100.0) / 100.0);</span>
+<span class="nc" id="L711">            stats.put(&quot;yearlyRevenue&quot;,  Math.round(yearly  * 100.0) / 100.0);</span>
+<span class="nc" id="L712">            stats.put(&quot;totalRevenue&quot;,   Math.round((monthly + yearly) * 100.0) / 100.0);</span>
+
+<span class="nc" id="L714">            List&lt;Object[]&gt; subsByPlan = subscriptionService.countByPlanName();</span>
+<span class="nc" id="L715">            Map&lt;String, Long&gt; subsByPlanMap = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L716" title="All 2 branches missed.">            for (Object[] row : subsByPlan) {</span>
+<span class="nc bnc" id="L717" title="All 2 branches missed.">                if (row[0] != null) subsByPlanMap.put((String) row[0], (Long) row[1]);</span>
+<span class="nc" id="L718">            }</span>
+<span class="nc" id="L719">            stats.put(&quot;subscribersPerPlan&quot;, subsByPlanMap);</span>
+
+<span class="nc" id="L721">            List&lt;Object[]&gt; activeByPlan = subscriptionService.countActiveByPlanName();</span>
+<span class="nc" id="L722">            Map&lt;String, Long&gt; activePlanMap = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L723" title="All 2 branches missed.">            for (Object[] row : activeByPlan) {</span>
+<span class="nc bnc" id="L724" title="All 2 branches missed.">                if (row[0] != null) activePlanMap.put((String) row[0], (Long) row[1]);</span>
+<span class="nc" id="L725">            }</span>
+<span class="nc" id="L726">            stats.put(&quot;subscribersPerPlanActive&quot;, activePlanMap);</span>
+
+<span class="nc" id="L728">        } catch (Exception e) {</span>
+<span class="nc" id="L729">            stats.put(&quot;error&quot;, &quot;Partial stats — &quot; + e.getMessage());</span>
+<span class="nc" id="L730">        }</span>
+
+<span class="nc" id="L732">        return ResponseEntity.ok(stats);</span>
+    }
+
+    @GetMapping(&quot;/plans/stats&quot;)
+    public ResponseEntity&lt;Map&lt;String, Object&gt;&gt; getPlanStats() {
+<span class="nc" id="L737">        Map&lt;String, Object&gt; stats = new HashMap&lt;&gt;();</span>
+
+        try {
+<span class="nc" id="L740">            stats.put(&quot;totalPlans&quot;,       pricingPlanService.countAll());</span>
+<span class="nc" id="L741">            stats.put(&quot;activePlans&quot;,      pricingPlanService.countByIsActive(true));</span>
+<span class="nc" id="L742">            stats.put(&quot;inactivePlans&quot;,    pricingPlanService.countByIsActive(false));</span>
+<span class="nc" id="L743">            stats.put(&quot;highlightedPlans&quot;, pricingPlanService.countByHighlight(true));</span>
+
+<span class="nc" id="L745">            List&lt;Object[]&gt; byName = pricingPlanService.countByName();</span>
+<span class="nc" id="L746">            Map&lt;String, Long&gt; nameMap = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L747" title="All 2 branches missed.">            for (Object[] row : byName) {</span>
+<span class="nc bnc" id="L748" title="All 2 branches missed.">                if (row[0] != null) nameMap.put((String) row[0], (Long) row[1]);</span>
+<span class="nc" id="L749">            }</span>
+<span class="nc" id="L750">            stats.put(&quot;byName&quot;, nameMap);</span>
+
+<span class="nc" id="L752">            Double avgMonthly = pricingPlanService.findAverageMonthlyPrice();</span>
+<span class="nc" id="L753">            Double minMonthly = pricingPlanService.findMinMonthlyPrice();</span>
+<span class="nc" id="L754">            Double maxMonthly = pricingPlanService.findMaxMonthlyPrice();</span>
+<span class="nc" id="L755">            Double avgYearly  = pricingPlanService.findAverageYearlyPrice();</span>
+
+<span class="nc bnc" id="L757" title="All 2 branches missed.">            stats.put(&quot;averageMonthlyPrice&quot;,       avgMonthly != null ? Math.round(avgMonthly * 100.0) / 100.0 : 0);</span>
+<span class="nc bnc" id="L758" title="All 2 branches missed.">            stats.put(&quot;cheapestMonthlyPrice&quot;,      minMonthly != null ? minMonthly : 0);</span>
+<span class="nc bnc" id="L759" title="All 2 branches missed.">            stats.put(&quot;mostExpensiveMonthlyPrice&quot;, maxMonthly != null ? maxMonthly : 0);</span>
+<span class="nc bnc" id="L760" title="All 2 branches missed.">            stats.put(&quot;averageYearlyPrice&quot;,        avgYearly  != null ? Math.round(avgYearly  * 100.0) / 100.0 : 0);</span>
+
+<span class="nc" id="L762">            List&lt;Object[]&gt; subsByPlan = subscriptionService.countByPlanName();</span>
+<span class="nc" id="L763">            Map&lt;String, Long&gt; subsByPlanMap = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L764" title="All 2 branches missed.">            for (Object[] row : subsByPlan) {</span>
+<span class="nc bnc" id="L765" title="All 2 branches missed.">                if (row[0] != null) subsByPlanMap.put((String) row[0], (Long) row[1]);</span>
+<span class="nc" id="L766">            }</span>
+<span class="nc" id="L767">            stats.put(&quot;subscribersPerPlan&quot;, subsByPlanMap);</span>
+
+<span class="nc" id="L769">        } catch (Exception e) {</span>
+<span class="nc" id="L770">            stats.put(&quot;error&quot;, &quot;Partial stats — &quot; + e.getMessage());</span>
+<span class="nc" id="L771">        }</span>
+
+<span class="nc" id="L773">        return ResponseEntity.ok(stats);</span>
+    }
+
+    /** Safe JSON for clients — avoids Hibernate/Jackson issues on JPA entities. */
+    private Map&lt;String, Object&gt; subscriptionToJsonMap(Subscription s) {
+<span class="nc" id="L778">        Map&lt;String, Object&gt; m = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L779">        m.put(&quot;id&quot;, s.getId());</span>
+<span class="nc" id="L780">        m.put(&quot;userId&quot;, s.getUserId());</span>
+<span class="nc" id="L781">        m.put(&quot;userRole&quot;, s.getUserRole());</span>
+<span class="nc bnc" id="L782" title="All 2 branches missed.">        if (s.getPricingPlan() != null) {</span>
+<span class="nc" id="L783">            m.put(&quot;planId&quot;, s.getPricingPlan().getId());</span>
+<span class="nc" id="L784">            m.put(&quot;planName&quot;, s.getPricingPlan().getName());</span>
+        } else {
+<span class="nc" id="L786">            m.put(&quot;planId&quot;, null);</span>
+<span class="nc" id="L787">            m.put(&quot;planName&quot;, null);</span>
+        }
+<span class="nc" id="L789">        m.put(&quot;billingCycle&quot;, s.getBillingCycle());</span>
+<span class="nc" id="L790">        m.put(&quot;status&quot;, s.getStatus());</span>
+<span class="nc" id="L791">        m.put(&quot;startDate&quot;, s.getStartDate());</span>
+<span class="nc" id="L792">        m.put(&quot;endDate&quot;, s.getEndDate());</span>
+<span class="nc" id="L793">        m.put(&quot;createdAt&quot;, s.getCreatedAt());</span>
+<span class="nc" id="L794">        m.put(&quot;autoRenew&quot;, s.isAutoRenew());</span>
+        try {
+<span class="nc" id="L796">            LoyaltyStatusDto loyalty = loyaltyService.getStatus(s.getUserId());</span>
+<span class="nc" id="L797">            m.put(&quot;loyaltyMonths&quot;, loyalty.getLoyaltyMonths());</span>
+<span class="nc" id="L798">            m.put(&quot;walletPoints&quot;, loyalty.getWalletPoints());</span>
+<span class="nc bnc" id="L799" title="All 2 branches missed.">            m.put(&quot;loyaltyTier&quot;, loyalty.getLoyaltyTier() != null ? loyalty.getLoyaltyTier().name() : &quot;NONE&quot;);</span>
+<span class="nc" id="L800">        } catch (Exception ignored) {</span>
+<span class="nc" id="L801">        }</span>
+<span class="nc" id="L802">        return m;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

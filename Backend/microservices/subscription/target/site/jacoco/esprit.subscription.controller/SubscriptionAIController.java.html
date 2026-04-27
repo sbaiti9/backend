@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SubscriptionAIController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.controller</a> &gt; <span class="el_source">SubscriptionAIController.java</span></div><h1>SubscriptionAIController.java</h1><pre class="source lang-java linenums">package esprit.subscription.controller;
+
+import esprit.subscription.DTO.ai.*;
+import esprit.subscription.entity.InterventionLog;
+import esprit.subscription.entity.PromoCode;
+import esprit.subscription.service.PromoCodeService;
+import esprit.subscription.service.SubscriptionAIService;
+import esprit.subscription.service.TutorSalaryRecommendationService;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping({&quot;/sub/ai&quot;, &quot;/api/ai&quot;})
+public class SubscriptionAIController {
+
+    private final SubscriptionAIService subscriptionAIService;
+    private final PromoCodeService promoCodeService;
+    private final TutorSalaryRecommendationService tutorSalaryRecommendationService;
+
+    public SubscriptionAIController(SubscriptionAIService subscriptionAIService,
+                                    PromoCodeService promoCodeService,
+<span class="fc" id="L24">                                    TutorSalaryRecommendationService tutorSalaryRecommendationService) {</span>
+<span class="fc" id="L25">        this.subscriptionAIService = subscriptionAIService;</span>
+<span class="fc" id="L26">        this.promoCodeService = promoCodeService;</span>
+<span class="fc" id="L27">        this.tutorSalaryRecommendationService = tutorSalaryRecommendationService;</span>
+<span class="fc" id="L28">    }</span>
+
+    @GetMapping(&quot;/churn&quot;)
+    public ResponseEntity&lt;ChurnRiskDto&gt; churn(@RequestParam Long userId) {
+<span class="nc" id="L32">        return ResponseEntity.ok(subscriptionAIService.calculateChurnRisk(userId));</span>
+    }
+
+    @GetMapping(&quot;/churn/all&quot;)
+    public ResponseEntity&lt;List&lt;ChurnRiskDto&gt;&gt; churnAll() {
+<span class="nc" id="L37">        return ResponseEntity.ok(subscriptionAIService.calculateAllChurnRisks());</span>
+    }
+
+    @GetMapping(&quot;/promo-targets&quot;)
+    public ResponseEntity&lt;List&lt;PromoTargetDto&gt;&gt; promoTargets() {
+<span class="nc" id="L42">        return ResponseEntity.ok(subscriptionAIService.getPromoTargets());</span>
+    }
+
+    @PostMapping(&quot;/promo/send&quot;)
+    public ResponseEntity&lt;?&gt; sendPromo(@RequestParam Long userId, @RequestParam int discount) {
+        try {
+<span class="nc" id="L48">            PromoCode p = promoCodeService.createAiTargetingPromo(userId, discount);</span>
+<span class="nc" id="L49">            return ResponseEntity.ok(p);</span>
+<span class="nc" id="L50">        } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L51">            return ResponseEntity.badRequest().body(e.getMessage());</span>
+        }
+    }
+
+    @GetMapping(&quot;/dna&quot;)
+    public ResponseEntity&lt;SubscriptionDnaDto&gt; dna(@RequestParam Long userId) {
+<span class="nc" id="L57">        return ResponseEntity.ok(subscriptionAIService.calculateDna(userId));</span>
+    }
+
+    @GetMapping(&quot;/dna/all&quot;)
+    public ResponseEntity&lt;List&lt;SubscriptionDnaDto&gt;&gt; dnaAll() {
+<span class="nc" id="L62">        return ResponseEntity.ok(subscriptionAIService.calculateAllDna());</span>
+    }
+
+    @GetMapping(&quot;/intervention&quot;)
+    public ResponseEntity&lt;InterventionDto&gt; intervention(@RequestParam Long userId) {
+<span class="nc" id="L67">        return ResponseEntity.ok(subscriptionAIService.getIntervention(userId));</span>
+    }
+
+    @GetMapping(&quot;/intervention/all&quot;)
+    public ResponseEntity&lt;List&lt;InterventionDto&gt;&gt; interventionAll() {
+<span class="nc" id="L72">        return ResponseEntity.ok(subscriptionAIService.getAllInterventions());</span>
+    }
+
+    @GetMapping(&quot;/contact-window&quot;)
+    public ResponseEntity&lt;ContactWindowDto&gt; contactWindow(@RequestParam Long userId) {
+<span class="nc" id="L77">        return ResponseEntity.ok(subscriptionAIService.getOptimalContactWindow(userId));</span>
+    }
+
+    @GetMapping(&quot;/contact-window/all&quot;)
+    public ResponseEntity&lt;List&lt;ContactWindowDto&gt;&gt; contactWindowAll() {
+<span class="nc" id="L82">        return ResponseEntity.ok(subscriptionAIService.getAllContactWindows());</span>
+    }
+
+    @GetMapping(&quot;/momentum&quot;)
+    public ResponseEntity&lt;MomentumDto&gt; momentum() {
+<span class="nc" id="L87">        return ResponseEntity.ok(subscriptionAIService.calculateMomentum());</span>
+    }
+
+    @GetMapping(&quot;/cohort-survival&quot;)
+    public ResponseEntity&lt;List&lt;CohortSurvivalDTO&gt;&gt; cohortSurvival() {
+<span class="nc" id="L92">        return ResponseEntity.ok(subscriptionAIService.cohortSurvival());</span>
+    }
+
+    @GetMapping(&quot;/monte-carlo&quot;)
+    public ResponseEntity&lt;MonteCarloForecastDTO&gt; monteCarlo() {
+<span class="nc" id="L97">        return ResponseEntity.ok(subscriptionAIService.monteCarloRevenue());</span>
+    }
+
+    @GetMapping(&quot;/ltv&quot;)
+    public ResponseEntity&lt;List&lt;LTVUserDTO&gt;&gt; ltv() {
+<span class="nc" id="L102">        return ResponseEntity.ok(subscriptionAIService.ltvDecay());</span>
+    }
+
+    @PostMapping(&quot;/intervention-log&quot;)
+    public ResponseEntity&lt;InterventionLog&gt; interventionLog(@RequestBody InterventionLogRequestDTO body) {
+        try {
+<span class="nc" id="L108">            return ResponseEntity.ok(subscriptionAIService.recordInterventionLog(body));</span>
+<span class="nc" id="L109">        } catch (IllegalArgumentException e) {</span>
+<span class="nc" id="L110">            return ResponseEntity.badRequest().build();</span>
+        }
+    }
+
+    @GetMapping(&quot;/intervention-accuracy&quot;)
+    public ResponseEntity&lt;List&lt;ActionAccuracyDTO&gt;&gt; interventionAccuracy() {
+<span class="nc" id="L116">        return ResponseEntity.ok(subscriptionAIService.interventionAccuracy());</span>
+    }
+
+    @GetMapping(&quot;/upgrade-pressure&quot;)
+    public ResponseEntity&lt;List&lt;UpgradeCandidateDTO&gt;&gt; upgradePressure() {
+<span class="nc" id="L121">        return ResponseEntity.ok(subscriptionAIService.upgradePressure());</span>
+    }
+
+    @GetMapping(&quot;/anomalies&quot;)
+    public ResponseEntity&lt;List&lt;AnomalyDTO&gt;&gt; anomalies() {
+<span class="nc" id="L126">        return ResponseEntity.ok(subscriptionAIService.behavioralAnomalies());</span>
+    }
+
+    @GetMapping(&quot;/tutor-salary-recommendation&quot;)
+    public ResponseEntity&lt;?&gt; tutorSalaryRecommendation(@RequestParam Long userId,
+                                                       @RequestParam(required = false) Double targetMonthlyRevenue) {
+        try {
+<span class="fc" id="L133">            return ResponseEntity.ok(</span>
+<span class="fc" id="L134">                    tutorSalaryRecommendationService.recommend(userId, targetMonthlyRevenue));</span>
+<span class="fc" id="L135">        } catch (IllegalArgumentException e) {</span>
+<span class="fc" id="L136">            return ResponseEntity.badRequest().body(java.util.Map.of(&quot;error&quot;, e.getMessage()));</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

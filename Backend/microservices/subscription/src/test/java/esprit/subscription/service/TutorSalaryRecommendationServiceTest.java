@@ -60,6 +60,7 @@ class TutorSalaryRecommendationServiceTest {
 
         Subscription s = new Subscription();
         s.setStartDate(LocalDateTime.now().minusMonths(10));
+        s.setUserRole("TUTEUR");
         when(subscriptionRepository.findByUserIdOrderByCreatedAtAsc(7L)).thenReturn(List.of(s));
 
         when(paymentRecordRepository.countSuccessfulByUserId(7L)).thenReturn(12L);
@@ -80,7 +81,10 @@ class TutorSalaryRecommendationServiceTest {
     void recommendUsesGroqExplanationWhenJsonIsValid() {
         UserProfileDto tutor = new UserProfileDto(8L, "Tutor", "Two", "t2@x.com", "TUTEUR", null, null, null, 4.2);
         when(userClient.getUserById(8L)).thenReturn(tutor);
-        when(subscriptionRepository.findByUserIdOrderByCreatedAtAsc(8L)).thenReturn(List.of());
+        Subscription s = new Subscription();
+        s.setStartDate(LocalDateTime.now().minusMonths(3));
+        s.setUserRole("TUTEUR");
+        when(subscriptionRepository.findByUserIdOrderByCreatedAtAsc(8L)).thenReturn(List.of(s));
         when(paymentRecordRepository.countSuccessfulByUserId(8L)).thenReturn(4L);
         when(paymentRecordRepository.countFailedByUserId(8L)).thenReturn(0L);
         when(paymentRecordRepository.sumSuccessfulAmountByUserId(8L)).thenReturn(1900d);

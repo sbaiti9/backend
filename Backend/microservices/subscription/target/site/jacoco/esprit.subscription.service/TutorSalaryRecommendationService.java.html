@@ -1,0 +1,364 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TutorSalaryRecommendationService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.service</a> &gt; <span class="el_source">TutorSalaryRecommendationService.java</span></div><h1>TutorSalaryRecommendationService.java</h1><pre class="source lang-java linenums">package esprit.subscription.service;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import esprit.subscription.DTO.UserProfileDto;
+import esprit.subscription.DTO.ai.TutorSalaryRecommendationDto;
+import esprit.subscription.client.UserClient;
+import esprit.subscription.entity.Subscription;
+import esprit.subscription.repository.PaymentRecordRepository;
+import esprit.subscription.repository.SubscriptionRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Optional;
+
+@Service
+public class TutorSalaryRecommendationService {
+
+<span class="fc" id="L30">    private static final Logger log = LoggerFactory.getLogger(TutorSalaryRecommendationService.class);</span>
+
+    private static final String SYSTEM_PROMPT = &quot;&quot;&quot;
+            Tu es un assistant RH pour Skillio. Réponds UNIQUEMENT en JSON valide.
+            Clés attendues:
+            - summary (string en français, 2-4 phrases)
+            - confidence (nombre 0..100)
+            - topFactors (tableau de 2 à 4 strings)
+            - negotiationTips (tableau de 2 à 4 strings courts)
+            N'invente pas de salaire, le salaire est déjà calculé côté moteur statistique.
+            Explique le résultat à partir des métriques fournies.
+            &quot;&quot;&quot;;
+
+    private final SubscriptionRepository subscriptionRepository;
+    private final PaymentRecordRepository paymentRecordRepository;
+    private final UserClient userClient;
+    private final GroqChatClient groqChatClient;
+    private final ObjectMapper objectMapper;
+
+    @Value(&quot;${skillio.tutor-salary.base-monthly:1200}&quot;)
+    private double baseMonthly;
+
+    @Value(&quot;${skillio.tutor-salary.min-monthly:700}&quot;)
+    private double minMonthly;
+
+    @Value(&quot;${skillio.tutor-salary.max-monthly:6000}&quot;)
+    private double maxMonthly;
+
+    @Value(&quot;${skillio.tutor-salary.weight-performance:0.50}&quot;)
+    private double weightPerformance;
+
+    @Value(&quot;${skillio.tutor-salary.weight-reliability:0.30}&quot;)
+    private double weightReliability;
+
+    @Value(&quot;${skillio.tutor-salary.weight-workload:0.20}&quot;)
+    private double weightWorkload;
+
+    @Value(&quot;${skillio.tutor-salary.groq.temperature:0.25}&quot;)
+    private double groqTemperature;
+
+    public TutorSalaryRecommendationService(SubscriptionRepository subscriptionRepository,
+                                            PaymentRecordRepository paymentRecordRepository,
+                                            UserClient userClient,
+                                            GroqChatClient groqChatClient,
+<span class="fc" id="L74">                                            ObjectMapper objectMapper) {</span>
+<span class="fc" id="L75">        this.subscriptionRepository = subscriptionRepository;</span>
+<span class="fc" id="L76">        this.paymentRecordRepository = paymentRecordRepository;</span>
+<span class="fc" id="L77">        this.userClient = userClient;</span>
+<span class="fc" id="L78">        this.groqChatClient = groqChatClient;</span>
+<span class="fc" id="L79">        this.objectMapper = objectMapper;</span>
+<span class="fc" id="L80">    }</span>
+
+    @Transactional(readOnly = true)
+    public TutorSalaryRecommendationDto recommend(Long userId, Double targetMonthlyRevenue) {
+        // 1. Get local subscriptions first (Our local source of truth for the relationship)
+<span class="fc" id="L85">        List&lt;Subscription&gt; subs = subscriptionRepository.findByUserIdOrderByCreatedAtAsc(userId);</span>
+<span class="fc bfc" id="L86" title="All 2 branches covered.">        if (subs.isEmpty()) {</span>
+<span class="fc" id="L87">            throw new IllegalArgumentException(&quot;No local subscription record found for userId=&quot; + userId);</span>
+        }
+
+        // 2. Identify role from our local database
+<span class="fc" id="L91">        Subscription latestSub = subs.get(subs.size() - 1);</span>
+<span class="fc" id="L92">        String role = normalizeRole(latestSub.getUserRole());</span>
+<span class="fc bfc" id="L93" title="All 2 branches covered.">        if (!&quot;TUTEUR&quot;.equals(role)) {</span>
+<span class="fc" id="L94">            throw new IllegalArgumentException(&quot;User role '&quot; + role + &quot;' is not eligible for salary recommendation.&quot;);</span>
+        }
+
+        // 3. Try to enrich with external profile (Rating), but default to 3.5 if fails (Resilience)
+<span class="fc" id="L98">        UserProfileDto profile = tryEnrichProfile(userId);</span>
+<span class="pc bpc" id="L99" title="2 of 4 branches missed.">        double rating = profile != null &amp;&amp; profile.getAverageRating() != null ? profile.getAverageRating() : 3.5;</span>
+<span class="pc bpc" id="L100" title="1 of 2 branches missed.">        boolean isSyntheticData = (profile == null);</span>
+
+<span class="fc" id="L102">        int monthsActive = estimateMonthsActive(subs);</span>
+<span class="fc" id="L103">        long successful = paymentRecordRepository.countSuccessfulByUserId(userId);</span>
+<span class="fc" id="L104">        long failed = paymentRecordRepository.countFailedByUserId(userId);</span>
+<span class="fc" id="L105">        double observedRevenue = safeDouble(paymentRecordRepository.sumSuccessfulAmountByUserId(userId));</span>
+<span class="pc bpc" id="L106" title="1 of 4 branches missed.">        double revenueRef = targetMonthlyRevenue != null &amp;&amp; targetMonthlyRevenue &gt; 0</span>
+<span class="fc" id="L107">                ? targetMonthlyRevenue</span>
+<span class="fc" id="L108">                : observedRevenue;</span>
+
+<span class="fc" id="L110">        double performanceScore = round2((rating / 5.0) * 100.0);</span>
+<span class="pc bpc" id="L111" title="1 of 2 branches missed.">        double reliabilityScore = round2(successful + failed &gt; 0</span>
+<span class="fc" id="L112">                ? (successful * 100.0 / (successful + failed))</span>
+<span class="nc" id="L113">                : 50.0);</span>
+<span class="fc" id="L114">        double workloadScore = round2(clamp(</span>
+<span class="fc" id="L115">                (Math.min(monthsActive, 24) / 24.0) * 60.0 + (Math.min(successful, 30) / 30.0) * 40.0,</span>
+                0.0, 100.0));
+
+<span class="fc" id="L118">        double overall = clamp(</span>
+                performanceScore * weightPerformance
+                        + reliabilityScore * weightReliability
+                        + workloadScore * weightWorkload,
+                0.0, 100.0);
+
+        // 0.5x to 1.75x scaling around base salary using score + revenue multiplier.
+<span class="fc" id="L125">        double scoreMultiplier = 0.5 + (overall / 100.0) * 1.25;</span>
+<span class="pc bpc" id="L126" title="1 of 2 branches missed.">        double revenueMultiplier = revenueRef &gt; 0</span>
+<span class="fc" id="L127">                ? clamp(0.85 + (revenueRef / 4000.0), 0.85, 1.40)</span>
+<span class="pc" id="L128">                : 1.0;</span>
+<span class="fc" id="L129">        double recommended = clamp(baseMonthly * scoreMultiplier * revenueMultiplier, minMonthly, maxMonthly);</span>
+<span class="fc" id="L130">        double min = clamp(recommended * 0.9, minMonthly, maxMonthly);</span>
+<span class="fc" id="L131">        double max = clamp(recommended * 1.1, minMonthly, maxMonthly);</span>
+        
+<span class="fc" id="L133">        int confidence = (int) Math.round(clamp(</span>
+<span class="fc" id="L134">                55 + (overall * 0.30) + (Math.min(monthsActive, 24) * 0.50),</span>
+                50, 98));
+        
+<span class="pc bpc" id="L137" title="1 of 2 branches missed.">        if (isSyntheticData) {</span>
+<span class="nc" id="L138">            confidence = Math.max(50, confidence - 15);</span>
+        }
+
+<span class="fc" id="L141">        List&lt;String&gt; defaultFactors = defaultTopFactors(rating, monthsActive, successful, failed, observedRevenue);</span>
+<span class="pc bpc" id="L142" title="1 of 2 branches missed.">        if (isSyntheticData) {</span>
+<span class="nc" id="L143">            defaultFactors.add(0, &quot;Note estimée : 3.5 (Profil externe introuvable)&quot;);</span>
+        }
+
+<span class="fc" id="L146">        List&lt;String&gt; defaultTips = defaultTips(reliabilityScore, performanceScore);</span>
+<span class="fc" id="L147">        String summary = fallbackSummary(overall, recommended, rating, reliabilityScore);</span>
+
+<span class="fc" id="L149">        TutorSalaryRecommendationDto base = TutorSalaryRecommendationDto.builder()</span>
+<span class="fc" id="L150">                .userId(userId)</span>
+<span class="fc" id="L151">                .role(role)</span>
+<span class="fc" id="L152">                .rating(round2(rating))</span>
+<span class="fc bfc" id="L153" title="All 2 branches covered.">                .targetMonthlyRevenue(targetMonthlyRevenue != null ? round2(targetMonthlyRevenue) : null)</span>
+<span class="fc" id="L154">                .observedMonthlyRevenue(round2(observedRevenue))</span>
+<span class="fc" id="L155">                .monthsActive(monthsActive)</span>
+<span class="fc" id="L156">                .successfulPayments((int) successful)</span>
+<span class="fc" id="L157">                .failedPayments((int) failed)</span>
+<span class="fc" id="L158">                .performanceScore(round2(performanceScore))</span>
+<span class="fc" id="L159">                .reliabilityScore(round2(reliabilityScore))</span>
+<span class="fc" id="L160">                .workloadScore(round2(workloadScore))</span>
+<span class="fc" id="L161">                .overallScore(round2(overall))</span>
+<span class="fc" id="L162">                .recommendedMonthlySalary(round2(recommended))</span>
+<span class="fc" id="L163">                .minMonthlySalary(round2(min))</span>
+<span class="fc" id="L164">                .maxMonthlySalary(round2(max))</span>
+<span class="fc" id="L165">                .currency(&quot;TND&quot;)</span>
+<span class="fc" id="L166">                .confidence(confidence)</span>
+<span class="fc" id="L167">                .topFactors(defaultFactors)</span>
+<span class="fc" id="L168">                .aiPowered(false)</span>
+<span class="fc" id="L169">                .summary(summary)</span>
+<span class="fc" id="L170">                .negotiationTips(defaultTips)</span>
+<span class="fc" id="L171">                .generatedAt(LocalDateTime.now())</span>
+<span class="pc bpc" id="L172" title="1 of 2 branches missed.">                .modelSource(isSyntheticData ? &quot;resilient-v1-virtual&quot; : &quot;deterministic-v1&quot;)</span>
+<span class="fc" id="L173">                .build();</span>
+
+<span class="fc" id="L175">        return withAiExplanation(base);</span>
+    }
+
+    private TutorSalaryRecommendationDto withAiExplanation(TutorSalaryRecommendationDto base) {
+<span class="fc" id="L179">        String payload = buildAiPayload(base);</span>
+<span class="fc" id="L180">        Optional&lt;String&gt; raw = groqChatClient.completeJson(</span>
+<span class="fc" id="L181">                SYSTEM_PROMPT, payload, clamp(groqTemperature, 0.0, 1.5));</span>
+<span class="fc bfc" id="L182" title="All 2 branches covered.">        if (raw.isEmpty()) {</span>
+<span class="fc" id="L183">            return base;</span>
+        }
+        try {
+<span class="fc" id="L186">            JsonNode root = objectMapper.readTree(raw.get());</span>
+<span class="fc" id="L187">            String summary = textOrNull(root.path(&quot;summary&quot;));</span>
+<span class="fc" id="L188">            Integer confidence = intOrNull(root.path(&quot;confidence&quot;));</span>
+<span class="fc" id="L189">            List&lt;String&gt; topFactors = toTextList(root.path(&quot;topFactors&quot;));</span>
+<span class="fc" id="L190">            List&lt;String&gt; tips = toTextList(root.path(&quot;negotiationTips&quot;));</span>
+<span class="fc" id="L191">            return TutorSalaryRecommendationDto.builder()</span>
+<span class="fc" id="L192">                    .userId(base.getUserId())</span>
+<span class="fc" id="L193">                    .role(base.getRole())</span>
+<span class="fc" id="L194">                    .rating(base.getRating())</span>
+<span class="fc" id="L195">                    .targetMonthlyRevenue(base.getTargetMonthlyRevenue())</span>
+<span class="fc" id="L196">                    .observedMonthlyRevenue(base.getObservedMonthlyRevenue())</span>
+<span class="fc" id="L197">                    .monthsActive(base.getMonthsActive())</span>
+<span class="fc" id="L198">                    .successfulPayments(base.getSuccessfulPayments())</span>
+<span class="fc" id="L199">                    .failedPayments(base.getFailedPayments())</span>
+<span class="fc" id="L200">                    .performanceScore(base.getPerformanceScore())</span>
+<span class="fc" id="L201">                    .reliabilityScore(base.getReliabilityScore())</span>
+<span class="fc" id="L202">                    .workloadScore(base.getWorkloadScore())</span>
+<span class="fc" id="L203">                    .overallScore(base.getOverallScore())</span>
+<span class="fc" id="L204">                    .recommendedMonthlySalary(base.getRecommendedMonthlySalary())</span>
+<span class="fc" id="L205">                    .minMonthlySalary(base.getMinMonthlySalary())</span>
+<span class="fc" id="L206">                    .maxMonthlySalary(base.getMaxMonthlySalary())</span>
+<span class="fc" id="L207">                    .currency(base.getCurrency())</span>
+<span class="pc bpc" id="L208" title="1 of 2 branches missed.">                    .confidence(confidence != null ? (int) clamp(confidence, 0, 100) : base.getConfidence())</span>
+<span class="pc bpc" id="L209" title="2 of 4 branches missed.">                    .topFactors(!topFactors.isEmpty() ? topFactors : base.getTopFactors())</span>
+<span class="pc bnc" id="L210" title="All 4 branches missed.">                    .aiPowered(summary != null || !tips.isEmpty() || !topFactors.isEmpty())</span>
+<span class="pc bpc" id="L211" title="1 of 2 branches missed.">                    .summary(summary != null ? summary : base.getSummary())</span>
+<span class="pc bpc" id="L212" title="1 of 2 branches missed.">                    .negotiationTips(!tips.isEmpty() ? tips : base.getNegotiationTips())</span>
+<span class="fc" id="L213">                    .generatedAt(base.getGeneratedAt())</span>
+<span class="pc bpc" id="L214" title="5 of 6 branches missed.">                    .modelSource(summary != null || !tips.isEmpty() || !topFactors.isEmpty()</span>
+<span class="fc" id="L215">                            ? &quot;deterministic-v1+groq-explainer&quot;</span>
+<span class="nc" id="L216">                            : base.getModelSource())</span>
+<span class="fc" id="L217">                    .build();</span>
+<span class="nc" id="L218">        } catch (Exception e) {</span>
+<span class="nc" id="L219">            log.warn(&quot;Tutor salary AI parse failed: {}&quot;, e.getMessage());</span>
+<span class="nc" id="L220">            return base;</span>
+        }
+    }
+
+    private String buildAiPayload(TutorSalaryRecommendationDto base) {
+<span class="fc" id="L225">        ObjectNode root = objectMapper.createObjectNode();</span>
+<span class="fc" id="L226">        root.put(&quot;userId&quot;, base.getUserId());</span>
+<span class="fc" id="L227">        root.put(&quot;role&quot;, base.getRole());</span>
+<span class="fc" id="L228">        root.put(&quot;rating&quot;, safeDouble(base.getRating()));</span>
+<span class="fc" id="L229">        root.put(&quot;targetMonthlyRevenue&quot;, safeDouble(base.getTargetMonthlyRevenue()));</span>
+<span class="fc" id="L230">        root.put(&quot;observedMonthlyRevenue&quot;, safeDouble(base.getObservedMonthlyRevenue()));</span>
+<span class="fc" id="L231">        root.put(&quot;monthsActive&quot;, base.getMonthsActive());</span>
+<span class="fc" id="L232">        root.put(&quot;successfulPayments&quot;, base.getSuccessfulPayments());</span>
+<span class="fc" id="L233">        root.put(&quot;failedPayments&quot;, base.getFailedPayments());</span>
+<span class="fc" id="L234">        root.put(&quot;performanceScore&quot;, base.getPerformanceScore());</span>
+<span class="fc" id="L235">        root.put(&quot;reliabilityScore&quot;, base.getReliabilityScore());</span>
+<span class="fc" id="L236">        root.put(&quot;workloadScore&quot;, base.getWorkloadScore());</span>
+<span class="fc" id="L237">        root.put(&quot;overallScore&quot;, base.getOverallScore());</span>
+<span class="fc" id="L238">        root.put(&quot;recommendedMonthlySalary&quot;, base.getRecommendedMonthlySalary());</span>
+<span class="fc" id="L239">        root.put(&quot;minMonthlySalary&quot;, base.getMinMonthlySalary());</span>
+<span class="fc" id="L240">        root.put(&quot;maxMonthlySalary&quot;, base.getMaxMonthlySalary());</span>
+<span class="fc" id="L241">        root.put(&quot;currency&quot;, base.getCurrency());</span>
+<span class="fc" id="L242">        root.put(&quot;confidence&quot;, base.getConfidence());</span>
+<span class="fc" id="L243">        root.put(&quot;today&quot;, LocalDate.now().toString());</span>
+<span class="fc" id="L244">        return root.toString();</span>
+    }
+
+    private UserProfileDto tryEnrichProfile(Long userId) {
+        try {
+<span class="fc" id="L249">            return userClient.getUserById(userId);</span>
+<span class="nc" id="L250">        } catch (Exception e) {</span>
+<span class="nc" id="L251">            log.warn(&quot;Resilience Mode: External User Microservice unreachable for userId={}. Using defaults.&quot;, userId);</span>
+<span class="nc" id="L252">            return null;</span>
+        }
+    }
+
+    private static String normalizeRole(String role) {
+<span class="pc bpc" id="L257" title="1 of 4 branches missed.">        if (role == null || role.isBlank()) {</span>
+<span class="fc" id="L258">            return &quot;UNKNOWN&quot;;</span>
+        }
+<span class="fc" id="L260">        String u = role.trim().toUpperCase();</span>
+<span class="pc bpc" id="L261" title="2 of 4 branches missed.">        if (&quot;TRAINER&quot;.equals(u) || &quot;TUTOR&quot;.equals(u)) {</span>
+<span class="nc" id="L262">            return &quot;TUTEUR&quot;;</span>
+        }
+<span class="fc" id="L264">        return u;</span>
+    }
+
+    private static int estimateMonthsActive(List&lt;Subscription&gt; subs) {
+<span class="fc" id="L268">        return subs.stream()</span>
+<span class="pc bpc" id="L269" title="1 of 2 branches missed.">                .filter(s -&gt; s.getStartDate() != null)</span>
+<span class="fc" id="L270">                .min(Comparator.comparing(Subscription::getStartDate))</span>
+<span class="fc" id="L271">                .map(first -&gt; {</span>
+<span class="fc" id="L272">                    long months = ChronoUnit.MONTHS.between(</span>
+<span class="fc" id="L273">                            first.getStartDate().toLocalDate().withDayOfMonth(1),</span>
+<span class="fc" id="L274">                            LocalDate.now().withDayOfMonth(1)</span>
+                    );
+<span class="fc" id="L276">                    return (int) Math.max(1, months + 1);</span>
+                })
+<span class="fc" id="L278">                .orElse(1);</span>
+    }
+
+    private static List&lt;String&gt; defaultTopFactors(double rating, int monthsActive, long successful, long failed, double observedRevenue) {
+<span class="fc" id="L282">        List&lt;String&gt; out = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L283">        out.add(&quot;Note moyenne: &quot; + round2(rating) + &quot;/5&quot;);</span>
+<span class="fc" id="L284">        out.add(&quot;Ancienneté active: &quot; + monthsActive + &quot; mois&quot;);</span>
+<span class="fc" id="L285">        out.add(&quot;Paiements réussis: &quot; + successful + &quot; (échecs: &quot; + failed + &quot;)&quot;);</span>
+<span class="fc" id="L286">        out.add(&quot;Revenu observé: &quot; + round2(observedRevenue) + &quot; TND&quot;);</span>
+<span class="fc" id="L287">        return out;</span>
+    }
+
+    private static List&lt;String&gt; defaultTips(double reliabilityScore, double performanceScore) {
+<span class="fc" id="L291">        List&lt;String&gt; tips = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L292">        tips.add(&quot;Réviser la recommandation tous les 3 mois selon les performances.&quot;);</span>
+<span class="pc bpc" id="L293" title="1 of 2 branches missed.">        if (performanceScore &gt;= 80) {</span>
+<span class="fc" id="L294">            tips.add(&quot;Prévoir un bonus de performance si la note reste au-dessus de 4.2/5.&quot;);</span>
+        } else {
+<span class="nc" id="L296">            tips.add(&quot;Associer le salaire à un plan d'amélioration pédagogique mesurable.&quot;);</span>
+        }
+<span class="pc bpc" id="L298" title="1 of 2 branches missed.">        if (reliabilityScore &lt; 70) {</span>
+<span class="nc" id="L299">            tips.add(&quot;Introduire une part variable liée à la fiabilité de paiement/activité.&quot;);</span>
+        }
+<span class="fc" id="L301">        return tips;</span>
+    }
+
+    private static String fallbackSummary(double overall, double salary, double rating, double reliability) {
+<span class="fc" id="L305">        return &quot;Recommandation calculée par score statistique (&quot;</span>
+<span class="fc" id="L306">                + round2(overall)</span>
+                + &quot;/100) avec une note moyenne de &quot;
+<span class="fc" id="L308">                + round2(rating)</span>
+                + &quot;/5 et une fiabilité de &quot;
+<span class="fc" id="L310">                + round2(reliability)</span>
+                + &quot;%. Salaire mensuel conseillé: &quot;
+<span class="fc" id="L312">                + round2(salary)</span>
+                + &quot; TND.&quot;;
+    }
+
+    private static List&lt;String&gt; toTextList(JsonNode node) {
+<span class="fc" id="L317">        List&lt;String&gt; out = new ArrayList&lt;&gt;();</span>
+<span class="pc bpc" id="L318" title="2 of 4 branches missed.">        if (node == null || !node.isArray()) {</span>
+<span class="nc" id="L319">            return out;</span>
+        }
+<span class="fc" id="L321">        ArrayNode arr = (ArrayNode) node;</span>
+<span class="fc bfc" id="L322" title="All 2 branches covered.">        for (JsonNode item : arr) {</span>
+<span class="fc" id="L323">            String txt = textOrNull(item);</span>
+<span class="pc bpc" id="L324" title="1 of 2 branches missed.">            if (txt != null) {</span>
+<span class="fc" id="L325">                out.add(txt);</span>
+            }
+<span class="fc" id="L327">        }</span>
+<span class="fc" id="L328">        return out;</span>
+    }
+
+    private static Integer intOrNull(JsonNode node) {
+<span class="pc bpc" id="L332" title="3 of 6 branches missed.">        if (node == null || node.isMissingNode() || node.isNull()) {</span>
+<span class="nc" id="L333">            return null;</span>
+        }
+<span class="pc bpc" id="L335" title="7 of 8 branches missed.">        if (node.isInt() || node.isLong() || node.isFloat() || node.isDouble()) {</span>
+<span class="fc" id="L336">            return node.asInt();</span>
+        }
+<span class="nc" id="L338">        return null;</span>
+    }
+
+    private static String textOrNull(JsonNode node) {
+<span class="pc bpc" id="L342" title="3 of 6 branches missed.">        if (node == null || node.isMissingNode() || node.isNull()) {</span>
+<span class="nc" id="L343">            return null;</span>
+        }
+<span class="fc" id="L345">        String s = node.asText();</span>
+<span class="pc bpc" id="L346" title="2 of 4 branches missed.">        if (s == null || s.isBlank()) {</span>
+<span class="nc" id="L347">            return null;</span>
+        }
+<span class="fc" id="L349">        return s.trim();</span>
+    }
+
+    private static double safeDouble(Double v) {
+<span class="pc bpc" id="L353" title="1 of 4 branches missed.">        return v == null || !Double.isFinite(v) ? 0.0 : v;</span>
+    }
+
+    private static double clamp(double value, double min, double max) {
+<span class="fc" id="L357">        return Math.max(min, Math.min(max, value));</span>
+    }
+
+    private static double round2(double value) {
+<span class="fc" id="L361">        return Math.round(value * 100.0) / 100.0;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

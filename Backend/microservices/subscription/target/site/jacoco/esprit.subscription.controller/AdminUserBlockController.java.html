@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AdminUserBlockController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.controller</a> &gt; <span class="el_source">AdminUserBlockController.java</span></div><h1>AdminUserBlockController.java</h1><pre class="source lang-java linenums">package esprit.subscription.controller;
+
+import esprit.subscription.DTO.liveness.AdminRejectBody;
+import esprit.subscription.DTO.liveness.AdminUsernameBody;
+import esprit.subscription.DTO.liveness.ReVerificationRequireResponse;
+import esprit.subscription.config.LivenessAdminAuthHelper;
+import esprit.subscription.entity.UserBlock;
+import esprit.subscription.service.AdminReVerificationService;
+import esprit.subscription.service.UserBlockService;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+
+@RestController
+@RequestMapping({&quot;/api/admin/blocks&quot;, &quot;/sub/admin/blocks&quot;})
+public class AdminUserBlockController {
+
+    private final UserBlockService userBlockService;
+    private final AdminReVerificationService adminReVerificationService;
+    private final LivenessAdminAuthHelper adminAuthHelper;
+
+    public AdminUserBlockController(
+            UserBlockService userBlockService,
+            AdminReVerificationService adminReVerificationService,
+<span class="fc" id="L28">            LivenessAdminAuthHelper adminAuthHelper) {</span>
+<span class="fc" id="L29">        this.userBlockService = userBlockService;</span>
+<span class="fc" id="L30">        this.adminReVerificationService = adminReVerificationService;</span>
+<span class="fc" id="L31">        this.adminAuthHelper = adminAuthHelper;</span>
+<span class="fc" id="L32">    }</span>
+
+    @GetMapping
+    public ResponseEntity&lt;List&lt;UserBlock&gt;&gt; pending(HttpServletRequest request,
+                                                   @RequestParam(required = false, defaultValue = &quot;pending&quot;) String view) {
+<span class="nc" id="L37">        adminAuthHelper.requireAdminSecret(request);</span>
+<span class="nc bnc" id="L38" title="All 2 branches missed.">        if (&quot;all&quot;.equalsIgnoreCase(view)) {</span>
+<span class="nc" id="L39">            return ResponseEntity.ok(userBlockService.findAllBlocks());</span>
+        }
+<span class="nc" id="L41">        return ResponseEntity.ok(userBlockService.findPendingReview());</span>
+    }
+
+    @PostMapping(&quot;/{blockId}/approve&quot;)
+    public ResponseEntity&lt;UserBlock&gt; approve(
+            @PathVariable Long blockId,
+            @RequestBody(required = false) AdminUsernameBody body,
+            HttpServletRequest request) {
+<span class="nc" id="L49">        adminAuthHelper.requireAdminSecret(request);</span>
+<span class="nc bnc" id="L50" title="All 4 branches missed.">        String admin = body != null &amp;&amp; body.getAdminUsername() != null ? body.getAdminUsername() : &quot;admin&quot;;</span>
+<span class="nc" id="L51">        return ResponseEntity.ok(userBlockService.approveUnlock(blockId, admin));</span>
+    }
+
+    @PostMapping(&quot;/{blockId}/reject&quot;)
+    public ResponseEntity&lt;UserBlock&gt; reject(
+            @PathVariable Long blockId,
+            @RequestBody AdminRejectBody body,
+            HttpServletRequest request) {
+<span class="nc" id="L59">        adminAuthHelper.requireAdminSecret(request);</span>
+<span class="nc bnc" id="L60" title="All 4 branches missed.">        String admin = body != null &amp;&amp; body.getAdminUsername() != null ? body.getAdminUsername() : &quot;admin&quot;;</span>
+<span class="nc bnc" id="L61" title="All 2 branches missed.">        String reason = body != null ? body.getReason() : &quot;&quot;;</span>
+<span class="nc" id="L62">        return ResponseEntity.ok(userBlockService.rejectUnlock(blockId, admin, reason));</span>
+    }
+
+    @GetMapping(&quot;/history/{userId}&quot;)
+    public ResponseEntity&lt;List&lt;UserBlock&gt;&gt; history(@PathVariable String userId, HttpServletRequest request) {
+<span class="nc" id="L67">        adminAuthHelper.requireAdminSecret(request);</span>
+<span class="nc" id="L68">        return ResponseEntity.ok(userBlockService.historyForUser(userId));</span>
+    }
+
+    @PostMapping(&quot;/{blockId}/require-reverification&quot;)
+    public ResponseEntity&lt;ReVerificationRequireResponse&gt; requireReverification(
+            @PathVariable Long blockId,
+            @RequestBody(required = false) AdminUsernameBody body,
+            HttpServletRequest request) {
+<span class="nc" id="L76">        adminAuthHelper.requireAdminSecret(request);</span>
+<span class="nc bnc" id="L77" title="All 4 branches missed.">        String admin = body != null &amp;&amp; body.getAdminUsername() != null ? body.getAdminUsername() : &quot;admin&quot;;</span>
+<span class="nc" id="L78">        AdminReVerificationService.ReVerificationTokenResult r =</span>
+<span class="nc" id="L79">                adminReVerificationService.requireReVerification(blockId, admin);</span>
+<span class="nc" id="L80">        return ResponseEntity.ok(ReVerificationRequireResponse.builder()</span>
+<span class="nc" id="L81">                .token(r.token())</span>
+<span class="nc" id="L82">                .expiresAt(r.expiresAt().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))</span>
+<span class="nc" id="L83">                .build());</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>
