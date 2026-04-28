@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SseStreamService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.service</a> &gt; <span class="el_source">SseStreamService.java</span></div><h1>SseStreamService.java</h1><pre class="source lang-java linenums">package esprit.subscription.service;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
+@Service
+public class SseStreamService {
+
+    /** 0 = no servlet timeout; connections still end when client/gateway disconnects. */
+    private static final long SSE_NO_TIMEOUT_MS = 0L;
+
+    private final ObjectMapper objectMapper;
+<span class="fc" id="L18">    private final Map&lt;String, SseEmitter&gt; emitters = new ConcurrentHashMap&lt;&gt;();</span>
+    /** Separate from unlock-chat admin stream ({@link #subscribeAdmin()}). */
+<span class="fc" id="L20">    private final Map&lt;String, SseEmitter&gt; adminNotificationEmitters = new ConcurrentHashMap&lt;&gt;();</span>
+
+<span class="fc" id="L22">    public SseStreamService(ObjectMapper objectMapper) {</span>
+<span class="fc" id="L23">        this.objectMapper = objectMapper;</span>
+<span class="fc" id="L24">    }</span>
+
+    public SseEmitter subscribeAdmin() {
+<span class="nc" id="L27">        SseEmitter emitter = new SseEmitter(SSE_NO_TIMEOUT_MS);</span>
+<span class="nc" id="L28">        emitters.put(&quot;admin&quot;, emitter);</span>
+<span class="nc" id="L29">        Runnable onEnd = () -&gt; emitters.remove(&quot;admin&quot;, emitter);</span>
+<span class="nc" id="L30">        emitter.onCompletion(onEnd);</span>
+<span class="nc" id="L31">        emitter.onTimeout(onEnd);</span>
+<span class="nc" id="L32">        emitter.onError(e -&gt; onEnd.run());</span>
+        try {
+<span class="nc" id="L34">            emitter.send(SseEmitter.event().name(&quot;connected&quot;).data(&quot;{\&quot;channel\&quot;:\&quot;admin\&quot;}&quot;));</span>
+<span class="nc" id="L35">        } catch (Exception e) {</span>
+<span class="nc" id="L36">            emitters.remove(&quot;admin&quot;, emitter);</span>
+<span class="nc" id="L37">        }</span>
+<span class="nc" id="L38">        return emitter;</span>
+    }
+
+    public SseEmitter subscribeUser(String userId) {
+<span class="nc bnc" id="L42" title="All 4 branches missed.">        if (userId == null || userId.isBlank()) {</span>
+<span class="nc" id="L43">            throw new IllegalArgumentException(&quot;userId required&quot;);</span>
+        }
+<span class="nc" id="L45">        String key = userId.trim();</span>
+<span class="nc" id="L46">        SseEmitter emitter = new SseEmitter(SSE_NO_TIMEOUT_MS);</span>
+<span class="nc" id="L47">        emitters.put(key, emitter);</span>
+<span class="nc" id="L48">        Runnable onEnd = () -&gt; emitters.remove(key, emitter);</span>
+<span class="nc" id="L49">        emitter.onCompletion(onEnd);</span>
+<span class="nc" id="L50">        emitter.onTimeout(onEnd);</span>
+<span class="nc" id="L51">        emitter.onError(e -&gt; onEnd.run());</span>
+        try {
+<span class="nc" id="L53">            emitter.send(SseEmitter.event().name(&quot;connected&quot;).data(&quot;{\&quot;channel\&quot;:\&quot;user\&quot;}&quot;));</span>
+<span class="nc" id="L54">        } catch (Exception e) {</span>
+<span class="nc" id="L55">            emitters.remove(key, emitter);</span>
+<span class="nc" id="L56">        }</span>
+<span class="nc" id="L57">        return emitter;</span>
+    }
+
+    /**
+     * SSE channel dedicated to admin notification alerts (not the unlock-chat inbox stream).
+     */
+    public SseEmitter subscribeAdminNotifications() {
+<span class="nc" id="L64">        SseEmitter emitter = new SseEmitter(SSE_NO_TIMEOUT_MS);</span>
+<span class="nc" id="L65">        String id = UUID.randomUUID().toString();</span>
+<span class="nc" id="L66">        adminNotificationEmitters.put(id, emitter);</span>
+<span class="nc" id="L67">        Runnable onEnd = () -&gt; adminNotificationEmitters.remove(id, emitter);</span>
+<span class="nc" id="L68">        emitter.onCompletion(onEnd);</span>
+<span class="nc" id="L69">        emitter.onTimeout(onEnd);</span>
+<span class="nc" id="L70">        emitter.onError(e -&gt; onEnd.run());</span>
+        try {
+<span class="nc" id="L72">            emitter.send(SseEmitter.event().name(&quot;connected&quot;).data(&quot;{\&quot;channel\&quot;:\&quot;admin-notifications\&quot;}&quot;));</span>
+<span class="nc" id="L73">        } catch (Exception e) {</span>
+<span class="nc" id="L74">            adminNotificationEmitters.remove(id, emitter);</span>
+<span class="nc" id="L75">        }</span>
+<span class="nc" id="L76">        return emitter;</span>
+    }
+
+    /** Broadcasts to every open admin notification SSE connection. */
+    public void sendToAdmins(String eventName, Object payload) {
+<span class="nc bnc" id="L81" title="All 2 branches missed.">        if (adminNotificationEmitters.isEmpty()) {</span>
+<span class="nc" id="L82">            return;</span>
+        }
+        String json;
+        try {
+<span class="nc" id="L86">            json = objectMapper.writeValueAsString(payload);</span>
+<span class="nc" id="L87">        } catch (Exception e) {</span>
+<span class="nc" id="L88">            return;</span>
+<span class="nc" id="L89">        }</span>
+<span class="nc bnc" id="L90" title="All 2 branches missed.">        for (Map.Entry&lt;String, SseEmitter&gt; e : adminNotificationEmitters.entrySet()) {</span>
+            try {
+<span class="nc" id="L92">                e.getValue().send(SseEmitter.event().name(eventName).data(json));</span>
+<span class="nc" id="L93">            } catch (Exception ex) {</span>
+<span class="nc" id="L94">                adminNotificationEmitters.remove(e.getKey(), e.getValue());</span>
+<span class="nc" id="L95">            }</span>
+<span class="nc" id="L96">        }</span>
+<span class="nc" id="L97">    }</span>
+
+    public void pushToAdmin(String eventName, Object payload) {
+<span class="nc" id="L100">        SseEmitter emitter = emitters.get(&quot;admin&quot;);</span>
+<span class="nc bnc" id="L101" title="All 2 branches missed.">        if (emitter == null) {</span>
+<span class="nc" id="L102">            return;</span>
+        }
+        try {
+<span class="nc" id="L105">            String json = objectMapper.writeValueAsString(payload);</span>
+<span class="nc" id="L106">            emitter.send(SseEmitter.event().name(eventName).data(json));</span>
+<span class="nc" id="L107">        } catch (Exception e) {</span>
+<span class="nc" id="L108">            emitters.remove(&quot;admin&quot;, emitter);</span>
+<span class="nc" id="L109">        }</span>
+<span class="nc" id="L110">    }</span>
+
+    public void pushToUser(String userId, String eventName, Object payload) {
+<span class="nc bnc" id="L113" title="All 4 branches missed.">        if (userId == null || userId.isBlank()) {</span>
+<span class="nc" id="L114">            return;</span>
+        }
+<span class="nc" id="L116">        String key = userId.trim();</span>
+<span class="nc" id="L117">        SseEmitter emitter = emitters.get(key);</span>
+<span class="nc bnc" id="L118" title="All 2 branches missed.">        if (emitter == null) {</span>
+<span class="nc" id="L119">            return;</span>
+        }
+        try {
+<span class="nc" id="L122">            String json = objectMapper.writeValueAsString(payload);</span>
+<span class="nc" id="L123">            emitter.send(SseEmitter.event().name(eventName).data(json));</span>
+<span class="nc" id="L124">        } catch (Exception e) {</span>
+<span class="nc" id="L125">            emitters.remove(key, emitter);</span>
+<span class="nc" id="L126">        }</span>
+<span class="nc" id="L127">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

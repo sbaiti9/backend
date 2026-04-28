@@ -1,0 +1,964 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SubscriptionAIService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.service</a> &gt; <span class="el_source">SubscriptionAIService.java</span></div><h1>SubscriptionAIService.java</h1><pre class="source lang-java linenums">package esprit.subscription.service;
+
+import esprit.subscription.DTO.ai.*;
+import esprit.subscription.entity.FraudAlert;
+import esprit.subscription.entity.InterventionLog;
+import esprit.subscription.entity.PaymentRecord;
+import esprit.subscription.entity.PricingPlan;
+import esprit.subscription.entity.PromoCode;
+import esprit.subscription.entity.Subscription;
+import esprit.subscription.repository.FraudAlertRepository;
+import esprit.subscription.repository.InterventionLogRepository;
+import esprit.subscription.repository.PaymentRecordRepository;
+import esprit.subscription.repository.PricingPlanRepository;
+import esprit.subscription.repository.PromoCodeRepository;
+import esprit.subscription.repository.SubscriptionRepository;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.YearMonth;
+import java.time.temporal.ChronoUnit;
+import java.util.*;
+import java.util.stream.Collectors;
+
+/**
+ * Module intelligence abonnements — logique pure Java, sans API externes.
+ */
+@Service
+public class SubscriptionAIService {
+
+    private static final String HIGH = &quot;HIGH&quot;;
+    private static final String MEDIUM = &quot;MEDIUM&quot;;
+    private static final String LOW = &quot;LOW&quot;;
+
+    private final SubscriptionRepository subscriptionRepository;
+    private final PaymentRecordRepository paymentRecordRepository;
+    private final PromoCodeRepository promoCodeRepository;
+    private final FraudAlertRepository fraudAlertRepository;
+    private final PricingPlanRepository pricingPlanRepository;
+    private final InterventionLogRepository interventionLogRepository;
+
+    public SubscriptionAIService(SubscriptionRepository subscriptionRepository,
+                                 PaymentRecordRepository paymentRecordRepository,
+                                 PromoCodeRepository promoCodeRepository,
+                                 FraudAlertRepository fraudAlertRepository,
+                                 PricingPlanRepository pricingPlanRepository,
+<span class="fc" id="L48">                                 InterventionLogRepository interventionLogRepository) {</span>
+<span class="fc" id="L49">        this.subscriptionRepository = subscriptionRepository;</span>
+<span class="fc" id="L50">        this.paymentRecordRepository = paymentRecordRepository;</span>
+<span class="fc" id="L51">        this.promoCodeRepository = promoCodeRepository;</span>
+<span class="fc" id="L52">        this.fraudAlertRepository = fraudAlertRepository;</span>
+<span class="fc" id="L53">        this.pricingPlanRepository = pricingPlanRepository;</span>
+<span class="fc" id="L54">        this.interventionLogRepository = interventionLogRepository;</span>
+<span class="fc" id="L55">    }</span>
+
+    // ── Churn ─────────────────────────────────────────────────────────────
+
+    @Transactional(readOnly = true)
+    public ChurnRiskDto calculateChurnRisk(Long userId) {
+<span class="nc" id="L61">        List&lt;Subscription&gt; subs = subscriptionRepository.findByUserIdOrderByCreatedAtAsc(userId);</span>
+<span class="nc bnc" id="L62" title="All 2 branches missed.">        if (subs.isEmpty()) {</span>
+<span class="nc" id="L63">            return ChurnRiskDto.builder()</span>
+<span class="nc" id="L64">                    .userId(userId)</span>
+<span class="nc" id="L65">                    .score(0)</span>
+<span class="nc" id="L66">                    .riskLevel(LOW)</span>
+<span class="nc" id="L67">                    .topReasons(List.of())</span>
+<span class="nc" id="L68">                    .recommendation(&quot;Aucune action requise&quot;)</span>
+<span class="nc" id="L69">                    .build();</span>
+        }
+
+<span class="nc" id="L72">        List&lt;ScoredReason&gt; reasons = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L73">        int score = 0;</span>
+
+<span class="nc" id="L75">        Optional&lt;Subscription&gt; activeOpt = subs.stream().filter(s -&gt; &quot;ACTIVE&quot;.equalsIgnoreCase(s.getStatus())).findFirst();</span>
+<span class="nc" id="L76">        Subscription active = activeOpt.orElse(null);</span>
+
+<span class="nc bnc" id="L78" title="All 2 branches missed.">        if (active != null) {</span>
+<span class="nc bnc" id="L79" title="All 2 branches missed.">            if (!active.isAutoRenew()) {</span>
+<span class="nc" id="L80">                score += 25;</span>
+<span class="nc" id="L81">                reasons.add(new ScoredReason(25, &quot;Renouvellement automatique désactivé&quot;));</span>
+            }
+<span class="nc bnc" id="L83" title="All 2 branches missed.">            if (&quot;MONTHLY&quot;.equalsIgnoreCase(active.getBillingCycle())) {</span>
+<span class="nc" id="L84">                score += 15;</span>
+<span class="nc" id="L85">                reasons.add(new ScoredReason(15, &quot;Abonnement mensuel sans engagement&quot;));</span>
+            }
+<span class="nc bnc" id="L87" title="All 2 branches missed.">            if (active.getEndDate() != null) {</span>
+<span class="nc" id="L88">                long days = ChronoUnit.DAYS.between(LocalDate.now(), active.getEndDate().toLocalDate());</span>
+<span class="nc bnc" id="L89" title="All 2 branches missed.">                if (days &lt;= 7) {</span>
+<span class="nc" id="L90">                    score += 20;</span>
+<span class="nc" id="L91">                    reasons.add(new ScoredReason(20, &quot;Expiration dans moins de 7 jours&quot;));</span>
+<span class="nc bnc" id="L92" title="All 2 branches missed.">                } else if (days &lt;= 30) {</span>
+<span class="nc" id="L93">                    score += 10;</span>
+<span class="nc" id="L94">                    reasons.add(new ScoredReason(10, &quot;Expiration dans 8 à 30 jours&quot;));</span>
+                }
+            }
+<span class="nc bnc" id="L97" title="All 2 branches missed.">            if (active.getGracePeriodEnd() != null</span>
+<span class="nc bnc" id="L98" title="All 2 branches missed.">                    &amp;&amp; active.getGracePeriodEnd().isAfter(LocalDateTime.now())) {</span>
+<span class="nc" id="L99">                score += 20;</span>
+<span class="nc" id="L100">                reasons.add(new ScoredReason(20, &quot;Période de grâce active&quot;));</span>
+            }
+        }
+
+<span class="nc" id="L104">        long failedPayments = paymentRecordRepository.countByUserIdAndStatus(userId, &quot;FAILED&quot;);</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">        if (failedPayments &gt;= 2) {</span>
+<span class="nc" id="L106">            score += 20;</span>
+<span class="nc" id="L107">            reasons.add(new ScoredReason(20, &quot;Paiements échoués répétés&quot;));</span>
+<span class="nc bnc" id="L108" title="All 2 branches missed.">        } else if (failedPayments == 1) {</span>
+<span class="nc" id="L109">            score += 10;</span>
+<span class="nc" id="L110">            reasons.add(new ScoredReason(10, &quot;Paiement échoué détecté&quot;));</span>
+        }
+
+<span class="nc bnc" id="L113" title="All 4 branches missed.">        boolean expiredNoRenewal = subs.stream().anyMatch(s -&gt; &quot;EXPIRED&quot;.equalsIgnoreCase(s.getStatus()))</span>
+                &amp;&amp; active == null;
+<span class="nc bnc" id="L115" title="All 2 branches missed.">        if (expiredNoRenewal) {</span>
+<span class="nc" id="L116">            score += 15;</span>
+<span class="nc" id="L117">            reasons.add(new ScoredReason(15, &quot;Abonnement expiré sans renouvellement récent&quot;));</span>
+        }
+
+<span class="nc" id="L120">        boolean fraudHigh = fraudAlertRepository.findByUserId(userId).stream()</span>
+<span class="nc" id="L121">                .anyMatch(a -&gt; HIGH.equalsIgnoreCase(a.getRiskLevel()));</span>
+<span class="nc bnc" id="L122" title="All 2 branches missed.">        if (fraudHigh) {</span>
+<span class="nc" id="L123">            score += 10;</span>
+<span class="nc" id="L124">            reasons.add(new ScoredReason(10, &quot;Alerte fraude niveau élevé&quot;));</span>
+        }
+
+<span class="nc" id="L127">        score = Math.min(100, score);</span>
+<span class="nc bnc" id="L128" title="All 4 branches missed.">        String level = score &gt;= 70 ? HIGH : (score &gt;= 40 ? MEDIUM : LOW);</span>
+<span class="nc bnc" id="L129" title="All 2 branches missed.">        String reco = score &gt;= 70</span>
+<span class="nc" id="L130">                ? &quot;Envoyer une offre de rétention immédiatement&quot;</span>
+<span class="nc bnc" id="L131" title="All 2 branches missed.">                : (score &gt;= 40 ? &quot;Planifier un email de rappel dans 5 jours&quot; : &quot;Aucune action requise&quot;);</span>
+
+<span class="nc" id="L133">        List&lt;String&gt; top = reasons.stream()</span>
+<span class="nc" id="L134">                .sorted(Comparator.comparingInt((ScoredReason r) -&gt; r.points).reversed())</span>
+<span class="nc" id="L135">                .limit(2)</span>
+<span class="nc" id="L136">                .map(r -&gt; r.label)</span>
+<span class="nc" id="L137">                .collect(Collectors.toList());</span>
+
+<span class="nc" id="L139">        return ChurnRiskDto.builder()</span>
+<span class="nc" id="L140">                .userId(userId)</span>
+<span class="nc" id="L141">                .score(score)</span>
+<span class="nc" id="L142">                .riskLevel(level)</span>
+<span class="nc" id="L143">                .topReasons(top)</span>
+<span class="nc" id="L144">                .recommendation(reco)</span>
+<span class="nc" id="L145">                .build();</span>
+    }
+
+    @Transactional(readOnly = true)
+    public List&lt;ChurnRiskDto&gt; calculateAllChurnRisks() {
+<span class="nc" id="L150">        List&lt;Long&gt; ids = subscriptionRepository.findDistinctUserIds();</span>
+<span class="nc bnc" id="L151" title="All 2 branches missed.">        if (ids == null) return new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L152">        return ids.stream()</span>
+<span class="nc" id="L153">                .map(this::calculateChurnRisk)</span>
+<span class="nc" id="L154">                .sorted(Comparator.comparingInt(ChurnRiskDto::getScore).reversed())</span>
+<span class="nc" id="L155">                .collect(Collectors.toList());</span>
+    }
+
+    // ── Promo targets ────────────────────────────────────────────────────
+
+    @Transactional(readOnly = true)
+    public List&lt;PromoTargetDto&gt; getPromoTargets() {
+<span class="nc" id="L162">        List&lt;PromoTargetDto&gt; out = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L163">        LocalDateTime now = LocalDateTime.now();</span>
+<span class="nc bnc" id="L164" title="All 2 branches missed.">        for (Subscription s : subscriptionRepository.findAllActiveWithPlans()) {</span>
+<span class="nc bnc" id="L165" title="All 2 branches missed.">            if (!&quot;ACTIVE&quot;.equalsIgnoreCase(s.getStatus())) continue;</span>
+<span class="nc bnc" id="L166" title="All 2 branches missed.">            if (s.isAutoRenew()) continue;</span>
+<span class="nc bnc" id="L167" title="All 2 branches missed.">            if (s.getEndDate() == null) continue;</span>
+<span class="nc" id="L168">            long days = ChronoUnit.DAYS.between(LocalDate.now(), s.getEndDate().toLocalDate());</span>
+<span class="nc bnc" id="L169" title="All 4 branches missed.">            if (days &gt; 30 || days &lt; 0) continue;</span>
+
+<span class="nc" id="L171">            Long uid = s.getUserId();</span>
+<span class="nc" id="L172">            ChurnRiskDto churn = calculateChurnRisk(uid);</span>
+<span class="nc bnc" id="L173" title="All 2 branches missed.">            if (churn.getScore() &lt; 40) continue;</span>
+
+<span class="nc" id="L175">            List&lt;PromoCode&gt; eligible = promoCodeRepository.findEligibleActiveForUser(uid, now);</span>
+<span class="nc bnc" id="L176" title="All 2 branches missed.">            if (!eligible.isEmpty()) continue;</span>
+
+<span class="nc bnc" id="L178" title="All 2 branches missed.">            String planName = s.getPricingPlan() != null ? s.getPricingPlan().getName() : &quot;BASIC&quot;;</span>
+<span class="nc" id="L179">            int disc = recommendedDiscountPct(planName);</span>
+<span class="nc" id="L180">            int priority = churn.getScore() + (int) (30 - Math.min(30, Math.max(0, days)));</span>
+
+<span class="nc" id="L182">            String reason = &quot;Expiration proche, risque de churn élevé, sans code promo actif et sans renouvellement auto.&quot;;</span>
+<span class="nc" id="L183">            out.add(PromoTargetDto.builder()</span>
+<span class="nc" id="L184">                    .userId(uid)</span>
+<span class="nc" id="L185">                    .planName(planName)</span>
+<span class="nc" id="L186">                    .daysUntilExpiry((int) days)</span>
+<span class="nc" id="L187">                    .churnScore(churn.getScore())</span>
+<span class="nc" id="L188">                    .recommendedDiscount(disc)</span>
+<span class="nc" id="L189">                    .priorityScore(priority)</span>
+<span class="nc" id="L190">                    .reason(reason)</span>
+<span class="nc" id="L191">                    .build());</span>
+<span class="nc" id="L192">        }</span>
+<span class="nc" id="L193">        out.sort(Comparator.comparingInt(PromoTargetDto::getPriorityScore).reversed());</span>
+<span class="nc" id="L194">        return out;</span>
+    }
+
+    private static int recommendedDiscountPct(String planName) {
+<span class="nc bnc" id="L198" title="All 2 branches missed.">        String u = planName != null ? planName.toUpperCase() : &quot;&quot;;</span>
+<span class="nc bnc" id="L199" title="All 2 branches missed.">        if (u.contains(&quot;PREMIUM&quot;)) return 20;</span>
+<span class="nc bnc" id="L200" title="All 2 branches missed.">        if (u.contains(&quot;PRO&quot;)) return 15;</span>
+<span class="nc" id="L201">        return 10;</span>
+    }
+
+    // ── DNA ───────────────────────────────────────────────────────────────
+
+    @Transactional(readOnly = true)
+    public SubscriptionDnaDto calculateDna(Long userId) {
+<span class="nc" id="L208">        List&lt;Subscription&gt; subs = subscriptionRepository.findByUserIdOrderByCreatedAtAsc(userId);</span>
+<span class="nc" id="L209">        ChurnRiskDto churn = calculateChurnRisk(userId);</span>
+<span class="nc" id="L210">        int churnScore = churn.getScore();</span>
+
+<span class="nc bnc" id="L212" title="All 2 branches missed.">        if (subs.isEmpty()) {</span>
+<span class="nc" id="L213">            return dnaDto(userId, &quot;STANDARD&quot;, &quot;Client standard&quot;, &quot;gray&quot;,</span>
+                    &quot;Maintenir l'engagement avec newsletters&quot;,
+<span class="nc" id="L215">                    List.of(&quot;Aucun historique d'abonnement.&quot;));</span>
+        }
+
+<span class="nc" id="L218">        boolean volatileProf = isVolatileProfile(subs);</span>
+<span class="nc" id="L219">        boolean bargain = isBargainHunter(userId, subs);</span>
+<span class="nc" id="L220">        boolean growing = isGrowing(subs);</span>
+<span class="nc" id="L221">        boolean loyal = isLoyalist(userId, subs);</span>
+
+<span class="nc bnc" id="L223" title="All 2 branches missed.">        if (volatileProf) {</span>
+<span class="nc" id="L224">            return dnaDto(userId, &quot;VOLATILE&quot;, &quot;Profil volatile&quot;, &quot;red&quot;,</span>
+                    &quot;Envoyer un email de stabilisation + offre d'engagement&quot;,
+<span class="nc" id="L226">                    List.of(&quot;Plusieurs annulations ou réinscriptions rapides détectées.&quot;));</span>
+        }
+<span class="nc bnc" id="L228" title="All 2 branches missed.">        if (churnScore &gt;= 40) {</span>
+<span class="nc" id="L229">            return dnaDto(userId, &quot;AT_RISK&quot;, &quot;À risque&quot;, &quot;orange&quot;,</span>
+                    &quot;Intervention prioritaire — voir Smart Intervention Engine&quot;,
+<span class="nc" id="L231">                    List.of(&quot;Score de churn élevé (&quot; + churnScore + &quot;/100).&quot;));</span>
+        }
+<span class="nc bnc" id="L233" title="All 2 branches missed.">        if (bargain) {</span>
+<span class="nc" id="L234">            return dnaDto(userId, &quot;BARGAIN_HUNTER&quot;, &quot;Chasseur de promos&quot;, &quot;amber&quot;,</span>
+                    &quot;Offrir YEARLY avec remise 15% avant expiration&quot;,
+<span class="nc" id="L236">                    List.of(&quot;Plusieurs codes promo ou cycles mensuels dominants.&quot;));</span>
+        }
+<span class="nc bnc" id="L238" title="All 2 branches missed.">        if (growing) {</span>
+<span class="nc" id="L239">            return dnaDto(userId, &quot;GROWING&quot;, &quot;En progression&quot;, &quot;blue&quot;,</span>
+                    &quot;Proposer plan supérieur avec comparaison des features&quot;,
+<span class="nc" id="L241">                    List.of(&quot;Progression de plan ou renouvellements actifs constatés.&quot;));</span>
+        }
+<span class="nc bnc" id="L243" title="All 2 branches missed.">        if (loyal) {</span>
+<span class="nc" id="L244">            return dnaDto(userId, &quot;LOYALIST&quot;, &quot;Client fidèle&quot;, &quot;green&quot;,</span>
+                    &quot;Proposer un upgrade ou un plan ambassadeur&quot;,
+<span class="nc" id="L246">                    List.of(&quot;Renouvellement automatique, cycle annuel et paiements sains.&quot;));</span>
+        }
+<span class="nc" id="L248">        return dnaDto(userId, &quot;STANDARD&quot;, &quot;Client standard&quot;, &quot;gray&quot;,</span>
+                &quot;Maintenir l'engagement avec newsletters&quot;,
+<span class="nc" id="L250">                List.of(&quot;Profil sans signal fort particulier.&quot;));</span>
+    }
+
+    private SubscriptionDnaDto dnaDto(Long userId, String arch, String label, String color, String strategy, List&lt;String&gt; signals) {
+<span class="nc" id="L254">        return SubscriptionDnaDto.builder()</span>
+<span class="nc" id="L255">                .userId(userId)</span>
+<span class="nc" id="L256">                .archetype(arch)</span>
+<span class="nc" id="L257">                .archetypeLabel(label)</span>
+<span class="nc" id="L258">                .color(color)</span>
+<span class="nc" id="L259">                .strategy(strategy)</span>
+<span class="nc" id="L260">                .signals(signals)</span>
+<span class="nc" id="L261">                .build();</span>
+    }
+
+    private boolean isVolatileProfile(List&lt;Subscription&gt; subs) {
+<span class="nc" id="L265">        long cancelled = subs.stream().filter(s -&gt; &quot;CANCELLED&quot;.equalsIgnoreCase(s.getStatus())).count();</span>
+<span class="nc bnc" id="L266" title="All 4 branches missed.">        if (subs.size() &gt;= 3 &amp;&amp; cancelled &gt;= 2) return true;</span>
+<span class="nc" id="L267">        List&lt;Subscription&gt; sorted = new ArrayList&lt;&gt;(subs);</span>
+<span class="nc" id="L268">        sorted.sort(Comparator.comparing(Subscription::getCreatedAt));</span>
+<span class="nc bnc" id="L269" title="All 2 branches missed.">        for (int i = 1; i &lt; sorted.size(); i++) {</span>
+<span class="nc" id="L270">            Subscription prev = sorted.get(i - 1);</span>
+<span class="nc" id="L271">            Subscription cur = sorted.get(i);</span>
+<span class="nc bnc" id="L272" title="All 4 branches missed.">            if (&quot;CANCELLED&quot;.equalsIgnoreCase(prev.getStatus()) &amp;&amp; prev.getEndDate() != null) {</span>
+<span class="nc" id="L273">                long days = ChronoUnit.DAYS.between(prev.getEndDate(), cur.getCreatedAt());</span>
+<span class="nc bnc" id="L274" title="All 4 branches missed.">                if (days &gt;= 0 &amp;&amp; days &lt;= 30) return true;</span>
+            }
+        }
+<span class="nc" id="L277">        return false;</span>
+    }
+
+    private boolean isBargainHunter(Long userId, List&lt;Subscription&gt; subs) {
+<span class="nc" id="L281">        long promoCount = promoCodeRepository.countByCreatedByUserId(userId);</span>
+<span class="nc" id="L282">        boolean allMonthly = subs.stream().allMatch(s -&gt; &quot;MONTHLY&quot;.equalsIgnoreCase(s.getBillingCycle()));</span>
+<span class="nc bnc" id="L283" title="All 8 branches missed.">        return promoCount &gt;= 2 || (allMonthly &amp;&amp; subs.size() &gt;= 1 &amp;&amp; promoCount &gt;= 1);</span>
+    }
+
+    private boolean isGrowing(List&lt;Subscription&gt; subs) {
+<span class="nc" id="L287">        List&lt;Subscription&gt; sorted = subs.stream()</span>
+<span class="nc" id="L288">                .sorted(Comparator.comparing(Subscription::getCreatedAt))</span>
+<span class="nc" id="L289">                .collect(Collectors.toList());</span>
+<span class="nc bnc" id="L290" title="All 2 branches missed.">        for (int i = 1; i &lt; sorted.size(); i++) {</span>
+<span class="nc" id="L291">            int t0 = planTier(sorted.get(i - 1).getPricingPlan());</span>
+<span class="nc" id="L292">            int t1 = planTier(sorted.get(i).getPricingPlan());</span>
+<span class="nc bnc" id="L293" title="All 2 branches missed.">            if (t1 &gt; t0) return true;</span>
+        }
+<span class="nc" id="L295">        return false;</span>
+    }
+
+    private boolean isLoyalist(Long userId, List&lt;Subscription&gt; subs) {
+<span class="nc bnc" id="L299" title="All 2 branches missed.">        if (subs.size() &lt; 2) return false;</span>
+<span class="nc" id="L300">        Subscription latest = subs.stream().max(Comparator.comparing(Subscription::getCreatedAt)).orElse(null);</span>
+<span class="nc bnc" id="L301" title="All 6 branches missed.">        if (latest == null || !&quot;ACTIVE&quot;.equalsIgnoreCase(latest.getStatus()) || !latest.isAutoRenew()) return false;</span>
+<span class="nc bnc" id="L302" title="All 2 branches missed.">        if (paymentRecordRepository.countByUserIdAndStatus(userId, &quot;FAILED&quot;) &gt; 0) return false;</span>
+<span class="nc" id="L303">        boolean yearlyOnce = subs.stream().anyMatch(s -&gt; &quot;YEARLY&quot;.equalsIgnoreCase(s.getBillingCycle()));</span>
+<span class="nc" id="L304">        return yearlyOnce;</span>
+    }
+
+    private static int planTier(PricingPlan p) {
+<span class="nc bnc" id="L308" title="All 4 branches missed.">        if (p == null || p.getName() == null) return 0;</span>
+<span class="nc" id="L309">        String n = p.getName().toUpperCase();</span>
+<span class="nc bnc" id="L310" title="All 2 branches missed.">        if (n.contains(&quot;PREMIUM&quot;)) return 3;</span>
+<span class="nc bnc" id="L311" title="All 2 branches missed.">        if (n.contains(&quot;PRO&quot;)) return 2;</span>
+<span class="nc bnc" id="L312" title="All 2 branches missed.">        if (n.contains(&quot;BASIC&quot;)) return 1;</span>
+<span class="nc" id="L313">        return 0;</span>
+    }
+
+    @Transactional(readOnly = true)
+    public List&lt;SubscriptionDnaDto&gt; calculateAllDna() {
+<span class="nc" id="L318">        List&lt;Long&gt; ids = subscriptionRepository.findDistinctUserIds();</span>
+<span class="nc bnc" id="L319" title="All 2 branches missed.">        if (ids == null) return new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L320">        return ids.stream().map(this::calculateDna).collect(Collectors.toList());</span>
+    }
+
+    // ── Intervention ─────────────────────────────────────────────────────
+
+    @Transactional(readOnly = true)
+    public InterventionDto getIntervention(Long userId) {
+<span class="nc" id="L327">        ChurnRiskDto churn = calculateChurnRisk(userId);</span>
+<span class="nc" id="L328">        SubscriptionDnaDto dna = calculateDna(userId);</span>
+<span class="nc" id="L329">        Optional&lt;Subscription&gt; activeOpt = subscriptionRepository.findActiveByUserId(userId);</span>
+<span class="nc" id="L330">        Subscription active = activeOpt.orElse(null);</span>
+
+<span class="nc" id="L332">        int churnScore = churn.getScore();</span>
+<span class="nc bnc" id="L333" title="All 4 branches missed.">        int daysLeft = active != null &amp;&amp; active.getEndDate() != null</span>
+<span class="nc" id="L334">                ? (int) ChronoUnit.DAYS.between(LocalDate.now(), active.getEndDate().toLocalDate())</span>
+<span class="nc" id="L335">                : 999;</span>
+
+<span class="nc bnc" id="L337" title="All 4 branches missed.">        if (active != null &amp;&amp; active.getGracePeriodEnd() != null</span>
+<span class="nc bnc" id="L338" title="All 2 branches missed.">                &amp;&amp; active.getGracePeriodEnd().isAfter(LocalDateTime.now())) {</span>
+<span class="nc" id="L339">            return baseIntervention(userId, &quot;PAYMENT_RECOVERY&quot;, &quot;Récupérer le paiement échoué&quot;, 95,</span>
+<span class="nc" id="L340">                    &quot;Grace period active — contacter immédiatement&quot;, dna.getArchetype(), churnScore);</span>
+        }
+<span class="nc bnc" id="L342" title="All 4 branches missed.">        if (churnScore &gt;= 70 &amp;&amp; daysLeft &lt;= 14) {</span>
+<span class="nc" id="L343">            return baseIntervention(userId, &quot;RETENTION_OFFER&quot;, &quot;Offre de rétention urgente&quot;, 88,</span>
+<span class="nc" id="L344">                    &quot;Haut risque de churn + expiration imminente&quot;, dna.getArchetype(), churnScore);</span>
+        }
+<span class="nc bnc" id="L346" title="All 6 branches missed.">        if (&quot;GROWING&quot;.equals(dna.getArchetype()) &amp;&amp; active != null &amp;&amp; active.getPricingPlan() != null</span>
+<span class="nc bnc" id="L347" title="All 2 branches missed.">                &amp;&amp; !isPremiumName(active.getPricingPlan().getName())) {</span>
+<span class="nc" id="L348">            int months = consecutiveActiveMonths(active);</span>
+<span class="nc" id="L349">            int conf = Math.min(90, 75 + months * 2);</span>
+<span class="nc" id="L350">            String cur = active.getPricingPlan().getName();</span>
+<span class="nc" id="L351">            String next = nextPlanFromCatalog(cur);</span>
+<span class="nc" id="L352">            return baseIntervention(userId, &quot;UPGRADE_PITCH&quot;,</span>
+                    &quot;Proposer upgrade &quot; + cur + &quot; → &quot; + next, conf,
+                    &quot;Comportement d'upgrade détecté sur &quot; + months + &quot; mois consécutifs&quot;,
+<span class="nc" id="L355">                    dna.getArchetype(), churnScore);</span>
+        }
+<span class="nc bnc" id="L357" title="All 4 branches missed.">        if (&quot;BARGAIN_HUNTER&quot;.equals(dna.getArchetype()) &amp;&amp; daysLeft &lt;= 30</span>
+<span class="nc bnc" id="L358" title="All 2 branches missed.">                &amp;&amp; promoCodeRepository.findEligibleActiveForUser(userId, LocalDateTime.now()).isEmpty()) {</span>
+<span class="nc bnc" id="L359" title="All 4 branches missed.">            int disc = active != null &amp;&amp; active.getPricingPlan() != null</span>
+<span class="nc" id="L360">                    ? recommendedDiscountPct(active.getPricingPlan().getName()) : 10;</span>
+<span class="nc" id="L361">            return baseIntervention(userId, &quot;PROMO_SEND&quot;, &quot;Envoyer promo &quot; + disc + &quot;%&quot;, 82,</span>
+<span class="nc" id="L362">                    &quot;Profil sensible aux promotions — fenêtre optimale&quot;, dna.getArchetype(), churnScore);</span>
+        }
+<span class="nc bnc" id="L364" title="All 6 branches missed.">        if (churnScore &gt;= 40 &amp;&amp; active != null &amp;&amp; !active.isAutoRenew()) {</span>
+<span class="nc" id="L365">            return baseIntervention(userId, &quot;AUTORENEW_PUSH&quot;, &quot;Activer le renouvellement automatique&quot;, 70,</span>
+<span class="nc" id="L366">                    &quot;Activation du auto-renew réduirait le churn de ~60%&quot;, dna.getArchetype(), churnScore);</span>
+        }
+<span class="nc" id="L368">        return baseIntervention(userId, &quot;NO_ACTION&quot;, &quot;Aucune action requise&quot;, 95,</span>
+<span class="nc" id="L369">                &quot;Abonnement sain&quot;, dna.getArchetype(), churnScore);</span>
+    }
+
+    private static InterventionDto baseIntervention(Long userId, String action, String label, int conf, String detail,
+                                                    String dna, int churn) {
+<span class="nc" id="L374">        return InterventionDto.builder()</span>
+<span class="nc" id="L375">                .userId(userId)</span>
+<span class="nc" id="L376">                .action(action)</span>
+<span class="nc" id="L377">                .label(label)</span>
+<span class="nc" id="L378">                .confidence(conf)</span>
+<span class="nc" id="L379">                .detail(detail)</span>
+<span class="nc" id="L380">                .dnaArchetype(dna)</span>
+<span class="nc" id="L381">                .churnScore(churn)</span>
+<span class="nc" id="L382">                .build();</span>
+    }
+
+    private static boolean isPremiumName(String name) {
+<span class="nc bnc" id="L386" title="All 4 branches missed.">        return name != null &amp;&amp; name.toUpperCase().contains(&quot;PREMIUM&quot;);</span>
+    }
+
+    private String nextPlanFromCatalog(String current) {
+<span class="nc" id="L390">        List&lt;PricingPlan&gt; active = pricingPlanRepository.findByIsActiveTrue();</span>
+<span class="nc bnc" id="L391" title="All 2 branches missed.">        if (active.isEmpty()) {</span>
+<span class="nc" id="L392">            return nextPlanFallback(current);</span>
+        }
+<span class="nc" id="L394">        int tCur = planTierFromName(current);</span>
+<span class="nc" id="L395">        return active.stream()</span>
+<span class="nc bnc" id="L396" title="All 2 branches missed.">                .filter(p -&gt; planTier(p) &gt; tCur)</span>
+<span class="nc" id="L397">                .min(Comparator.comparingInt(SubscriptionAIService::planTier))</span>
+<span class="nc" id="L398">                .map(PricingPlan::getName)</span>
+<span class="nc" id="L399">                .orElseGet(() -&gt; nextPlanFallback(current));</span>
+    }
+
+    private static String nextPlanFallback(String current) {
+<span class="nc bnc" id="L403" title="All 2 branches missed.">        String u = current != null ? current.toUpperCase() : &quot;&quot;;</span>
+<span class="nc bnc" id="L404" title="All 2 branches missed.">        if (u.contains(&quot;BASIC&quot;)) return &quot;PRO&quot;;</span>
+<span class="nc bnc" id="L405" title="All 2 branches missed.">        if (u.contains(&quot;PRO&quot;)) return &quot;PREMIUM&quot;;</span>
+<span class="nc" id="L406">        return &quot;PREMIUM&quot;;</span>
+    }
+
+    private static int planTierFromName(String name) {
+<span class="nc bnc" id="L410" title="All 2 branches missed.">        if (name == null) return 0;</span>
+<span class="nc" id="L411">        String u = name.toUpperCase();</span>
+<span class="nc bnc" id="L412" title="All 2 branches missed.">        if (u.contains(&quot;PREMIUM&quot;)) return 3;</span>
+<span class="nc bnc" id="L413" title="All 2 branches missed.">        if (u.contains(&quot;PRO&quot;)) return 2;</span>
+<span class="nc bnc" id="L414" title="All 2 branches missed.">        if (u.contains(&quot;BASIC&quot;)) return 1;</span>
+<span class="nc" id="L415">        return 0;</span>
+    }
+
+    private int consecutiveActiveMonths(Subscription active) {
+<span class="nc bnc" id="L419" title="All 2 branches missed.">        if (active.getStartDate() == null) return 1;</span>
+<span class="nc" id="L420">        long months = ChronoUnit.MONTHS.between(active.getStartDate().toLocalDate().withDayOfMonth(1),</span>
+<span class="nc" id="L421">                LocalDate.now().withDayOfMonth(1));</span>
+<span class="nc" id="L422">        return (int) Math.max(1, Math.min(12, months + 1));</span>
+    }
+
+    @Transactional(readOnly = true)
+    public List&lt;InterventionDto&gt; getAllInterventions() {
+<span class="nc" id="L427">        List&lt;Long&gt; ids = subscriptionRepository.findDistinctUserIds();</span>
+<span class="nc bnc" id="L428" title="All 2 branches missed.">        if (ids == null) return new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L429">        return ids.stream()</span>
+<span class="nc" id="L430">                .map(this::getIntervention)</span>
+<span class="nc" id="L431">                .sorted(Comparator.comparingInt(InterventionDto::getConfidence).reversed()</span>
+<span class="nc" id="L432">                        .thenComparing(Comparator.comparingInt(InterventionDto::getChurnScore).reversed()))</span>
+<span class="nc" id="L433">                .collect(Collectors.toList());</span>
+    }
+
+    // ── Contact window ───────────────────────────────────────────────────
+
+    @Transactional(readOnly = true)
+    public ContactWindowDto getOptimalContactWindow(Long userId) {
+<span class="nc" id="L440">        ChurnRiskDto churn = calculateChurnRisk(userId);</span>
+<span class="nc" id="L441">        SubscriptionDnaDto dna = calculateDna(userId);</span>
+<span class="nc" id="L442">        Optional&lt;Subscription&gt; activeOpt = subscriptionRepository.findActiveByUserId(userId);</span>
+<span class="nc bnc" id="L443" title="All 4 branches missed.">        if (activeOpt.isEmpty() || activeOpt.get().getEndDate() == null) {</span>
+<span class="nc" id="L444">            return ContactWindowDto.builder()</span>
+<span class="nc" id="L445">                    .userId(userId)</span>
+<span class="nc" id="L446">                    .contactInDays(0)</span>
+<span class="nc" id="L447">                    .contactDateLabel(&quot;N/A&quot;)</span>
+<span class="nc" id="L448">                    .channel(&quot;EMAIL_REMINDER&quot;)</span>
+<span class="nc" id="L449">                    .channelLabel(&quot;Rappel standard&quot;)</span>
+<span class="nc" id="L450">                    .avgResponseWindow(14)</span>
+<span class="nc" id="L451">                    .isOverdue(false)</span>
+<span class="nc" id="L452">                    .urgencyLevel(&quot;PLANNED&quot;)</span>
+<span class="nc" id="L453">                    .build();</span>
+        }
+<span class="nc" id="L455">        Subscription active = activeOpt.get();</span>
+<span class="nc" id="L456">        LocalDateTime endDate = active.getEndDate();</span>
+<span class="nc" id="L457">        int avgWindow = computeAvgResponseWindow(userId, active, dna.getArchetype());</span>
+
+<span class="nc" id="L459">        LocalDateTime contactAt = endDate.minusDays(avgWindow);</span>
+<span class="nc" id="L460">        long rawDays = ChronoUnit.DAYS.between(LocalDate.now(), contactAt.toLocalDate());</span>
+<span class="nc bnc" id="L461" title="All 2 branches missed.">        boolean overdue = rawDays &lt; 0;</span>
+<span class="nc" id="L462">        int signedDays = (int) rawDays;</span>
+
+        String label;
+<span class="nc bnc" id="L465" title="All 2 branches missed.">        if (overdue) {</span>
+<span class="nc" id="L466">            label = &quot;Contact en retard de &quot; + Math.abs(rawDays) + &quot; jours&quot;;</span>
+<span class="nc bnc" id="L467" title="All 2 branches missed.">        } else if (rawDays == 0) {</span>
+<span class="nc" id="L468">            label = &quot;Aujourd'hui&quot;;</span>
+        } else {
+<span class="nc" id="L470">            label = &quot;Dans &quot; + rawDays + &quot; jours&quot;;</span>
+        }
+
+        String channel;
+        String channelFr;
+<span class="nc bnc" id="L475" title="All 6 branches missed.">        if (churn.getScore() &gt;= 70 || (active.getGracePeriodEnd() != null &amp;&amp; active.getGracePeriodEnd().isAfter(LocalDateTime.now()))) {</span>
+<span class="nc" id="L476">            channel = &quot;EMAIL_RETENTION&quot;;</span>
+<span class="nc" id="L477">            channelFr = &quot;E-mail de rétention&quot;;</span>
+<span class="nc bnc" id="L478" title="All 2 branches missed.">        } else if (&quot;BARGAIN_HUNTER&quot;.equals(dna.getArchetype())) {</span>
+<span class="nc" id="L479">            channel = &quot;EMAIL_PROMO&quot;;</span>
+<span class="nc" id="L480">            channelFr = &quot;E-mail promotionnel&quot;;</span>
+<span class="nc bnc" id="L481" title="All 2 branches missed.">        } else if (&quot;GROWING&quot;.equals(dna.getArchetype())) {</span>
+<span class="nc" id="L482">            channel = &quot;EMAIL_UPGRADE&quot;;</span>
+<span class="nc" id="L483">            channelFr = &quot;E-mail upgrade&quot;;</span>
+<span class="nc bnc" id="L484" title="All 4 branches missed.">        } else if (!active.isAutoRenew() &amp;&amp; churn.getScore() &lt; 70) {</span>
+<span class="nc" id="L485">            channel = &quot;EMAIL_AUTORENEW&quot;;</span>
+<span class="nc" id="L486">            channelFr = &quot;E-mail renouvellement auto&quot;;</span>
+        } else {
+<span class="nc" id="L488">            channel = &quot;EMAIL_REMINDER&quot;;</span>
+<span class="nc" id="L489">            channelFr = &quot;Rappel abonnement&quot;;</span>
+        }
+
+<span class="nc bnc" id="L492" title="All 4 branches missed.">        String urgency = churn.getScore() &gt;= 70 || overdue ? &quot;URGENT&quot;</span>
+<span class="nc bnc" id="L493" title="All 2 branches missed.">                : (rawDays &lt;= 3 ? &quot;SOON&quot; : &quot;PLANNED&quot;);</span>
+
+<span class="nc" id="L495">        return ContactWindowDto.builder()</span>
+<span class="nc" id="L496">                .userId(userId)</span>
+<span class="nc" id="L497">                .contactInDays(signedDays)</span>
+<span class="nc" id="L498">                .contactDateLabel(label)</span>
+<span class="nc" id="L499">                .channel(channel)</span>
+<span class="nc" id="L500">                .channelLabel(channelFr)</span>
+<span class="nc" id="L501">                .avgResponseWindow(avgWindow)</span>
+<span class="nc" id="L502">                .isOverdue(overdue)</span>
+<span class="nc" id="L503">                .urgencyLevel(urgency)</span>
+<span class="nc" id="L504">                .build();</span>
+    }
+
+    private int computeAvgResponseWindow(Long userId, Subscription active, String archetype) {
+<span class="nc" id="L508">        List&lt;PromoCode&gt; promos = promoCodeRepository.findByCreatedByUserIdOrderByCreatedAtAsc(userId);</span>
+<span class="nc" id="L509">        List&lt;Long&gt; daysList = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L510">        LocalDateTime end = active.getEndDate();</span>
+<span class="nc bnc" id="L511" title="All 2 branches missed.">        for (PromoCode p : promos) {</span>
+<span class="nc bnc" id="L512" title="All 2 branches missed.">            int uses = p.getCurrentUses() == null ? 0 : p.getCurrentUses();</span>
+<span class="nc bnc" id="L513" title="All 2 branches missed.">            if (uses &lt; 1) continue;</span>
+<span class="nc bnc" id="L514" title="All 4 branches missed.">            if (p.getCreatedAt() == null || end == null) continue;</span>
+<span class="nc" id="L515">            long d = ChronoUnit.DAYS.between(p.getCreatedAt().toLocalDate(), end.toLocalDate());</span>
+<span class="nc bnc" id="L516" title="All 4 branches missed.">            if (d &gt;= 0 &amp;&amp; d &lt; 400) daysList.add(d);</span>
+<span class="nc" id="L517">        }</span>
+<span class="nc bnc" id="L518" title="All 2 branches missed.">        if (daysList.size() &gt;= 2) {</span>
+<span class="nc" id="L519">            return (int) Math.round(daysList.stream().mapToLong(Long::longValue).average().orElse(14));</span>
+        }
+<span class="nc" id="L521">        return defaultWindowForArchetype(archetype);</span>
+    }
+
+    private static int defaultWindowForArchetype(String arch) {
+<span class="nc bnc" id="L525" title="All 8 branches missed.">        return switch (arch != null ? arch : &quot;STANDARD&quot;) {</span>
+<span class="nc" id="L526">            case &quot;LOYALIST&quot; -&gt; 14;</span>
+<span class="nc" id="L527">            case &quot;BARGAIN_HUNTER&quot; -&gt; 10;</span>
+<span class="nc" id="L528">            case &quot;VOLATILE&quot; -&gt; 20;</span>
+<span class="nc" id="L529">            case &quot;GROWING&quot; -&gt; 21;</span>
+<span class="nc" id="L530">            case &quot;AT_RISK&quot; -&gt; 7;</span>
+<span class="nc" id="L531">            default -&gt; 14;</span>
+        };
+    }
+
+    @Transactional(readOnly = true)
+    public List&lt;ContactWindowDto&gt; getAllContactWindows() {
+<span class="nc" id="L537">        return subscriptionRepository.findAllActiveWithPlans().stream()</span>
+<span class="nc" id="L538">                .map(Subscription::getUserId)</span>
+<span class="nc" id="L539">                .distinct()</span>
+<span class="nc" id="L540">                .map(this::getOptimalContactWindow)</span>
+<span class="nc" id="L541">                .sorted(Comparator.comparing(ContactWindowDto::isOverdue).reversed()</span>
+<span class="nc" id="L542">                        .thenComparingInt(ContactWindowDto::getContactInDays))</span>
+<span class="nc" id="L543">                .collect(Collectors.toList());</span>
+    }
+
+    // ── Momentum ──────────────────────────────────────────────────────────
+
+    @Transactional(readOnly = true)
+    public MomentumDto calculateMomentum() {
+<span class="nc" id="L550">        List&lt;Subscription&gt; all = subscriptionRepository.findAll();</span>
+<span class="nc" id="L551">        LocalDateTime now = LocalDateTime.now();</span>
+<span class="nc" id="L552">        List&lt;WeeklySnapshotDto&gt; history = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L553">        int[] net = new int[4];</span>
+<span class="nc" id="L554">        String[] labels = { &quot;Il y a 3 sem.&quot;, &quot;Il y a 2 sem.&quot;, &quot;Semaine dernière&quot;, &quot;Semaine en cours&quot; };</span>
+<span class="nc bnc" id="L555" title="All 2 branches missed.">        for (int w = 3; w &gt;= 0; w--) {</span>
+<span class="nc" id="L556">            LocalDateTime from = now.minusDays((long) (w + 1) * 7);</span>
+<span class="nc" id="L557">            LocalDateTime to = now.minusDays((long) w * 7);</span>
+<span class="nc" id="L558">            int idx = 3 - w;</span>
+<span class="nc" id="L559">            int n = countNewSubs(all, from, to);</span>
+<span class="nc" id="L560">            int c = countCancellations(all, from, to);</span>
+<span class="nc" id="L561">            int ng = n - c;</span>
+<span class="nc" id="L562">            net[idx] = ng;</span>
+<span class="nc" id="L563">            history.add(WeeklySnapshotDto.builder()</span>
+<span class="nc" id="L564">                    .weekLabel(labels[idx])</span>
+<span class="nc" id="L565">                    .newSubs(n)</span>
+<span class="nc" id="L566">                    .cancellations(c)</span>
+<span class="nc" id="L567">                    .netGrowth(ng)</span>
+<span class="nc" id="L568">                    .build());</span>
+        }
+
+<span class="nc" id="L571">        int nw0 = net[3];</span>
+<span class="nc" id="L572">        int nw1 = net[2];</span>
+        String trend;
+        String trendFr;
+<span class="nc bnc" id="L575" title="All 2 branches missed.">        if (nw0 &lt; 0) {</span>
+<span class="nc" id="L576">            trend = &quot;NEGATIVE&quot;;</span>
+<span class="nc" id="L577">            trendFr = &quot;Tendance négative&quot;;</span>
+<span class="nc bnc" id="L578" title="All 2 branches missed.">        } else if (nw0 &gt; nw1) {</span>
+<span class="nc" id="L579">            trend = &quot;ACCELERATING&quot;;</span>
+<span class="nc" id="L580">            trendFr = &quot;Accélération&quot;;</span>
+<span class="nc bnc" id="L581" title="All 2 branches missed.">        } else if (nw0 == nw1) {</span>
+<span class="nc" id="L582">            trend = &quot;STABLE&quot;;</span>
+<span class="nc" id="L583">            trendFr = &quot;Stable&quot;;</span>
+        } else {
+<span class="nc" id="L585">            trend = &quot;DECELERATING&quot;;</span>
+<span class="nc" id="L586">            trendFr = &quot;Décélération&quot;;</span>
+        }
+<span class="nc bnc" id="L588" title="All 2 branches missed.">        String alert = &quot;NEGATIVE&quot;.equals(trend)</span>
+<span class="nc" id="L589">                ? &quot;Attention : la croissance nette est négative sur la semaine en cours.&quot;</span>
+<span class="nc" id="L590">                : null;</span>
+
+<span class="nc" id="L592">        List&lt;PlanMomentumDto&gt; perPlan = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L593" title="All 2 branches missed.">        for (String pname : List.of(&quot;BASIC&quot;, &quot;PRO&quot;, &quot;PREMIUM&quot;)) {</span>
+<span class="nc" id="L594">            int n0 = countNewForPlan(all, pname, now.minusDays(7), now);</span>
+<span class="nc" id="L595">            int n1 = countNewForPlan(all, pname, now.minusDays(14), now.minusDays(7));</span>
+<span class="nc" id="L596">            int c0 = countCancelForPlan(all, pname, now.minusDays(7), now);</span>
+<span class="nc" id="L597">            int c1 = countCancelForPlan(all, pname, now.minusDays(14), now.minusDays(7));</span>
+<span class="nc" id="L598">            int g0 = n0 - c0;</span>
+<span class="nc" id="L599">            int g1 = n1 - c1;</span>
+<span class="nc bnc" id="L600" title="All 4 branches missed.">            String tr = g0 &gt; g1 ? &quot;UP&quot; : (g0 &lt; g1 ? &quot;DOWN&quot; : &quot;STABLE&quot;);</span>
+<span class="nc bnc" id="L601" title="All 4 branches missed.">            String arrow = &quot;UP&quot;.equals(tr) ? &quot;↑&quot; : (&quot;DOWN&quot;.equals(tr) ? &quot;↓&quot; : &quot;→&quot;);</span>
+<span class="nc" id="L602">            perPlan.add(PlanMomentumDto.builder()</span>
+<span class="nc" id="L603">                    .planName(pname)</span>
+<span class="nc" id="L604">                    .trend(tr)</span>
+<span class="nc" id="L605">                    .netGrowth(g0)</span>
+<span class="nc" id="L606">                    .trendArrow(arrow)</span>
+<span class="nc" id="L607">                    .build());</span>
+<span class="nc" id="L608">        }</span>
+
+<span class="nc" id="L610">        return MomentumDto.builder()</span>
+<span class="nc" id="L611">                .netGrowthThisWeek(net[3])</span>
+<span class="nc" id="L612">                .netGrowthLastWeek(net[2])</span>
+<span class="nc" id="L613">                .globalTrend(trend)</span>
+<span class="nc" id="L614">                .globalTrendLabel(trendFr)</span>
+<span class="nc" id="L615">                .alertMessage(alert)</span>
+<span class="nc" id="L616">                .weeklyHistory(history)</span>
+<span class="nc" id="L617">                .perPlan(perPlan)</span>
+<span class="nc" id="L618">                .build();</span>
+    }
+
+    private static int countNewSubs(List&lt;Subscription&gt; all, LocalDateTime from, LocalDateTime to) {
+<span class="nc" id="L622">        return (int) all.stream()</span>
+<span class="nc bnc" id="L623" title="All 2 branches missed.">                .filter(s -&gt; s.getCreatedAt() != null</span>
+<span class="nc bnc" id="L624" title="All 2 branches missed.">                        &amp;&amp; !s.getCreatedAt().isBefore(from)</span>
+<span class="nc bnc" id="L625" title="All 2 branches missed.">                        &amp;&amp; s.getCreatedAt().isBefore(to)</span>
+<span class="nc bnc" id="L626" title="All 2 branches missed.">                        &amp;&amp; !&quot;CANCELLED&quot;.equalsIgnoreCase(s.getStatus()))</span>
+<span class="nc" id="L627">                .count();</span>
+    }
+
+    private static int countCancellations(List&lt;Subscription&gt; all, LocalDateTime from, LocalDateTime to) {
+<span class="nc" id="L631">        return (int) all.stream()</span>
+<span class="nc bnc" id="L632" title="All 2 branches missed.">                .filter(s -&gt; &quot;CANCELLED&quot;.equalsIgnoreCase(s.getStatus())</span>
+<span class="nc bnc" id="L633" title="All 2 branches missed.">                        &amp;&amp; s.getEndDate() != null</span>
+<span class="nc bnc" id="L634" title="All 2 branches missed.">                        &amp;&amp; !s.getEndDate().isBefore(from)</span>
+<span class="nc bnc" id="L635" title="All 2 branches missed.">                        &amp;&amp; s.getEndDate().isBefore(to))</span>
+<span class="nc" id="L636">                .count();</span>
+    }
+
+    private static int countNewForPlan(List&lt;Subscription&gt; all, String planName, LocalDateTime from, LocalDateTime to) {
+<span class="nc" id="L640">        return (int) all.stream()</span>
+<span class="nc bnc" id="L641" title="All 2 branches missed.">                .filter(s -&gt; s.getPricingPlan() != null</span>
+<span class="nc bnc" id="L642" title="All 2 branches missed.">                        &amp;&amp; s.getPricingPlan().getName() != null</span>
+<span class="nc bnc" id="L643" title="All 2 branches missed.">                        &amp;&amp; s.getPricingPlan().getName().toUpperCase().contains(planName)</span>
+<span class="nc bnc" id="L644" title="All 2 branches missed.">                        &amp;&amp; s.getCreatedAt() != null</span>
+<span class="nc bnc" id="L645" title="All 2 branches missed.">                        &amp;&amp; !s.getCreatedAt().isBefore(from)</span>
+<span class="nc bnc" id="L646" title="All 2 branches missed.">                        &amp;&amp; s.getCreatedAt().isBefore(to)</span>
+<span class="nc bnc" id="L647" title="All 2 branches missed.">                        &amp;&amp; !&quot;CANCELLED&quot;.equalsIgnoreCase(s.getStatus()))</span>
+<span class="nc" id="L648">                .count();</span>
+    }
+
+    private static int countCancelForPlan(List&lt;Subscription&gt; all, String planName, LocalDateTime from, LocalDateTime to) {
+<span class="nc" id="L652">        return (int) all.stream()</span>
+<span class="nc bnc" id="L653" title="All 2 branches missed.">                .filter(s -&gt; s.getPricingPlan() != null</span>
+<span class="nc bnc" id="L654" title="All 2 branches missed.">                        &amp;&amp; s.getPricingPlan().getName() != null</span>
+<span class="nc bnc" id="L655" title="All 2 branches missed.">                        &amp;&amp; s.getPricingPlan().getName().toUpperCase().contains(planName)</span>
+<span class="nc bnc" id="L656" title="All 2 branches missed.">                        &amp;&amp; &quot;CANCELLED&quot;.equalsIgnoreCase(s.getStatus())</span>
+<span class="nc bnc" id="L657" title="All 2 branches missed.">                        &amp;&amp; s.getEndDate() != null</span>
+<span class="nc bnc" id="L658" title="All 2 branches missed.">                        &amp;&amp; !s.getEndDate().isBefore(from)</span>
+<span class="nc bnc" id="L659" title="All 2 branches missed.">                        &amp;&amp; s.getEndDate().isBefore(to))</span>
+<span class="nc" id="L660">                .count();</span>
+    }
+
+    // ── Advanced intelligence (v2) ────────────────────────────────────────
+
+    @Transactional(readOnly = true)
+    public List&lt;CohortSurvivalDTO&gt; cohortSurvival() {
+<span class="nc" id="L667">        List&lt;Subscription&gt; all = subscriptionRepository.findAll();</span>
+<span class="nc" id="L668">        Map&lt;YearMonth, List&lt;Subscription&gt;&gt; byMonth = all.stream()</span>
+<span class="nc bnc" id="L669" title="All 2 branches missed.">                .filter(s -&gt; s.getCreatedAt() != null)</span>
+<span class="nc" id="L670">                .collect(Collectors.groupingBy(s -&gt; YearMonth.from(s.getCreatedAt())));</span>
+<span class="nc" id="L671">        List&lt;CohortSurvivalDTO&gt; out = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L672" title="All 2 branches missed.">        for (Map.Entry&lt;YearMonth, List&lt;Subscription&gt;&gt; e : byMonth.entrySet()) {</span>
+<span class="nc" id="L673">            List&lt;Subscription&gt; cohort = e.getValue();</span>
+<span class="nc" id="L674">            int total = cohort.size();</span>
+<span class="nc" id="L675">            double s30 = cohortSurvivalRate(cohort, 30, total);</span>
+<span class="nc" id="L676">            double s60 = cohortSurvivalRate(cohort, 60, total);</span>
+<span class="nc" id="L677">            double s90 = cohortSurvivalRate(cohort, 90, total);</span>
+<span class="nc" id="L678">            out.add(CohortSurvivalDTO.builder()</span>
+<span class="nc" id="L679">                    .cohortMonth(e.getKey().toString())</span>
+<span class="nc" id="L680">                    .totalUsers(total)</span>
+<span class="nc" id="L681">                    .survival30(round2(s30))</span>
+<span class="nc" id="L682">                    .survival60(round2(s60))</span>
+<span class="nc" id="L683">                    .survival90(round2(s90))</span>
+<span class="nc" id="L684">                    .build());</span>
+<span class="nc" id="L685">        }</span>
+<span class="nc" id="L686">        out.sort(Comparator.comparing(CohortSurvivalDTO::getCohortMonth).reversed());</span>
+<span class="nc" id="L687">        return out;</span>
+    }
+
+    private static double cohortSurvivalRate(List&lt;Subscription&gt; cohort, int days, int total) {
+<span class="nc bnc" id="L691" title="All 2 branches missed.">        if (total == 0) return 0;</span>
+<span class="nc" id="L692">        long eligible = cohort.stream()</span>
+<span class="nc bnc" id="L693" title="All 2 branches missed.">                .filter(s -&gt; !s.getCreatedAt().plusDays(days).isAfter(LocalDateTime.now()))</span>
+<span class="nc" id="L694">                .count();</span>
+<span class="nc bnc" id="L695" title="All 2 branches missed.">        if (eligible == 0) return 0;</span>
+<span class="nc" id="L696">        long survived = cohort.stream()</span>
+<span class="nc bnc" id="L697" title="All 2 branches missed.">                .filter(s -&gt; !s.getCreatedAt().plusDays(days).isAfter(LocalDateTime.now()))</span>
+<span class="nc" id="L698">                .filter(s -&gt; survivedAtDay(s, days))</span>
+<span class="nc" id="L699">                .count();</span>
+<span class="nc" id="L700">        return 100.0 * survived / eligible;</span>
+    }
+
+    private static boolean survivedAtDay(Subscription s, int days) {
+<span class="nc" id="L704">        LocalDateTime start = s.getCreatedAt();</span>
+<span class="nc" id="L705">        LocalDateTime point = start.plusDays(days);</span>
+<span class="nc bnc" id="L706" title="All 2 branches missed.">        if (point.isAfter(LocalDateTime.now())) {</span>
+<span class="nc" id="L707">            return false;</span>
+        }
+<span class="nc bnc" id="L709" title="All 2 branches missed.">        if (&quot;ACTIVE&quot;.equalsIgnoreCase(s.getStatus())) {</span>
+<span class="nc bnc" id="L710" title="All 4 branches missed.">            return s.getEndDate() == null || s.getEndDate().isAfter(point);</span>
+        }
+<span class="nc bnc" id="L712" title="All 2 branches missed.">        if (s.getEndDate() == null) {</span>
+<span class="nc" id="L713">            return false;</span>
+        }
+<span class="nc" id="L715">        return s.getEndDate().isAfter(point);</span>
+    }
+
+    @Transactional(readOnly = true)
+    public MonteCarloForecastDTO monteCarloRevenue() {
+<span class="nc" id="L720">        List&lt;Subscription&gt; active = subscriptionRepository.findAllActiveWithPlans();</span>
+<span class="nc" id="L721">        Map&lt;Long, Integer&gt; churnCache = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L722" title="All 2 branches missed.">        for (Subscription s : active) {</span>
+<span class="nc" id="L723">            churnCache.putIfAbsent(s.getUserId(), calculateChurnRisk(s.getUserId()).getScore());</span>
+<span class="nc" id="L724">        }</span>
+<span class="nc" id="L725">        double currentMrr = active.stream().mapToDouble(SubscriptionAIService::monthlyMrr).sum();</span>
+<span class="nc" id="L726">        final int SIMS = 1000;</span>
+<span class="nc" id="L727">        double[] sims = new double[SIMS];</span>
+<span class="nc" id="L728">        Random rnd = new Random();</span>
+<span class="nc bnc" id="L729" title="All 2 branches missed.">        for (int i = 0; i &lt; SIMS; i++) {</span>
+<span class="nc" id="L730">            double mrr = 0;</span>
+<span class="nc bnc" id="L731" title="All 2 branches missed.">            for (Subscription s : active) {</span>
+<span class="nc" id="L732">                int score = churnCache.getOrDefault(s.getUserId(), 0);</span>
+<span class="nc" id="L733">                double p = Math.min(0.99, Math.max(0.01, score / 100.0));</span>
+<span class="nc bnc" id="L734" title="All 2 branches missed.">                if (rnd.nextDouble() &gt;= p) {</span>
+<span class="nc" id="L735">                    mrr += monthlyMrr(s);</span>
+                }
+<span class="nc" id="L737">            }</span>
+<span class="nc" id="L738">            sims[i] = mrr;</span>
+        }
+<span class="nc" id="L740">        Arrays.sort(sims);</span>
+<span class="nc" id="L741">        return MonteCarloForecastDTO.builder()</span>
+<span class="nc" id="L742">                .p10(sims[(int) Math.floor(SIMS * 0.10)])</span>
+<span class="nc" id="L743">                .p50(sims[(int) Math.floor(SIMS * 0.50)])</span>
+<span class="nc" id="L744">                .p90(sims[(int) Math.floor(SIMS * 0.90)])</span>
+<span class="nc" id="L745">                .currentMRR(round2(currentMrr))</span>
+<span class="nc" id="L746">                .minSim(sims[0])</span>
+<span class="nc" id="L747">                .maxSim(sims[SIMS - 1])</span>
+<span class="nc" id="L748">                .simulations(SIMS)</span>
+<span class="nc" id="L749">                .build();</span>
+    }
+
+    private static double monthlyMrr(Subscription s) {
+<span class="nc" id="L753">        PricingPlan p = s.getPricingPlan();</span>
+<span class="nc bnc" id="L754" title="All 2 branches missed.">        if (p == null) return 0;</span>
+<span class="nc bnc" id="L755" title="All 4 branches missed.">        if (s.getBillingCycle() != null &amp;&amp; s.getBillingCycle().equalsIgnoreCase(&quot;YEARLY&quot;)) {</span>
+<span class="nc" id="L756">            Double y = p.getYearlyPrice();</span>
+<span class="nc bnc" id="L757" title="All 2 branches missed.">            return y != null ? y / 12.0 : 0;</span>
+        }
+<span class="nc" id="L759">        Double m = p.getMonthlyPrice();</span>
+<span class="nc bnc" id="L760" title="All 2 branches missed.">        return m != null ? m : 0;</span>
+    }
+
+    @Transactional(readOnly = true)
+    public List&lt;LTVUserDTO&gt; ltvDecay() {
+<span class="nc" id="L765">        List&lt;Long&gt; userIds = subscriptionRepository.findDistinctUserIds();</span>
+<span class="nc bnc" id="L766" title="All 2 branches missed.">        if (userIds == null) return new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L767">        List&lt;LTVUserDTO&gt; rows = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L768" title="All 2 branches missed.">        for (Long uid : userIds) {</span>
+<span class="nc" id="L769">            Optional&lt;Subscription&gt; active = subscriptionRepository.findActiveByUserId(uid);</span>
+<span class="nc" id="L770">            Subscription sub = active.orElseGet(() -&gt;</span>
+<span class="nc" id="L771">                    subscriptionRepository.findByUserIdOrderByCreatedAtAsc(uid).stream()</span>
+<span class="nc" id="L772">                            .reduce((a, b) -&gt; b)</span>
+<span class="nc" id="L773">                            .orElse(null));</span>
+<span class="nc bnc" id="L774" title="All 4 branches missed.">            if (sub == null || sub.getPricingPlan() == null) continue;</span>
+<span class="nc" id="L775">            int score = calculateChurnRisk(uid).getScore();</span>
+<span class="nc bnc" id="L776" title="All 2 branches missed.">            double expected = score &gt; 0 ? Math.min(48.0, 100.0 / score) : 48.0;</span>
+<span class="nc" id="L777">            double price = monthlyMrr(sub);</span>
+<span class="nc" id="L778">            double ltv = price * expected;</span>
+<span class="nc bnc" id="L779" title="All 2 branches missed.">            String planName = sub.getPricingPlan().getName() != null ? sub.getPricingPlan().getName() : &quot;—&quot;;</span>
+<span class="nc" id="L780">            rows.add(LTVUserDTO.builder()</span>
+<span class="nc" id="L781">                    .userId(uid)</span>
+<span class="nc" id="L782">                    .plan(planName)</span>
+<span class="nc" id="L783">                    .planPrice(round2(price))</span>
+<span class="nc" id="L784">                    .churnScore(score)</span>
+<span class="nc" id="L785">                    .expectedMonths(round2(expected))</span>
+<span class="nc" id="L786">                    .ltv(round2(ltv))</span>
+<span class="nc" id="L787">                    .build());</span>
+<span class="nc" id="L788">        }</span>
+<span class="nc" id="L789">        rows.sort(Comparator.comparingDouble(LTVUserDTO::getLtv).reversed());</span>
+<span class="nc" id="L790">        return rows;</span>
+    }
+
+    @Transactional
+    public InterventionLog recordInterventionLog(InterventionLogRequestDTO req) {
+<span class="nc bnc" id="L795" title="All 6 branches missed.">        if (req.getUserId() == null || req.getActionType() == null || req.getOutcome() == null) {</span>
+<span class="nc" id="L796">            throw new IllegalArgumentException(&quot;userId, actionType et outcome sont requis&quot;);</span>
+        }
+<span class="nc" id="L798">        InterventionLog log = new InterventionLog();</span>
+<span class="nc" id="L799">        log.setUserId(req.getUserId());</span>
+<span class="nc" id="L800">        log.setActionType(req.getActionType());</span>
+<span class="nc" id="L801">        log.setOutcome(req.getOutcome().toUpperCase());</span>
+<span class="nc bnc" id="L802" title="All 2 branches missed.">        log.setRecommendedAt(req.getRecommendedAt() != null ? req.getRecommendedAt() : LocalDateTime.now());</span>
+<span class="nc bnc" id="L803" title="All 2 branches missed.">        log.setExecutedAt(req.getExecutedAt() != null ? req.getExecutedAt() : LocalDateTime.now());</span>
+<span class="nc" id="L804">        log.setConfidenceAtTime(req.getConfidenceAtTime());</span>
+<span class="nc" id="L805">        return interventionLogRepository.save(log);</span>
+    }
+
+    @Transactional(readOnly = true)
+    public List&lt;ActionAccuracyDTO&gt; interventionAccuracy() {
+<span class="nc" id="L810">        List&lt;InterventionLog&gt; all = interventionLogRepository.findAll();</span>
+<span class="nc" id="L811">        Map&lt;String, List&lt;InterventionLog&gt;&gt; byAction = all.stream()</span>
+<span class="nc bnc" id="L812" title="All 4 branches missed.">                .filter(l -&gt; &quot;SUCCESS&quot;.equalsIgnoreCase(l.getOutcome()) || &quot;MISS&quot;.equalsIgnoreCase(l.getOutcome()))</span>
+<span class="nc" id="L813">                .collect(Collectors.groupingBy(InterventionLog::getActionType));</span>
+<span class="nc" id="L814">        List&lt;ActionAccuracyDTO&gt; out = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L815">        LocalDateTime now = LocalDateTime.now();</span>
+<span class="nc" id="L816">        LocalDateTime t14 = now.minusDays(14);</span>
+<span class="nc" id="L817">        LocalDateTime t28 = now.minusDays(28);</span>
+<span class="nc bnc" id="L818" title="All 2 branches missed.">        for (Map.Entry&lt;String, List&lt;InterventionLog&gt;&gt; e : byAction.entrySet()) {</span>
+<span class="nc" id="L819">            String action = e.getKey();</span>
+<span class="nc" id="L820">            List&lt;InterventionLog&gt; list = e.getValue();</span>
+<span class="nc" id="L821">            int total = list.size();</span>
+<span class="nc" id="L822">            int successes = (int) list.stream().filter(l -&gt; &quot;SUCCESS&quot;.equalsIgnoreCase(l.getOutcome())).count();</span>
+<span class="nc bnc" id="L823" title="All 2 branches missed.">            double acc = total &gt; 0 ? (100.0 * successes / total) : 0;</span>
+<span class="nc" id="L824">            double recent = successRateBetween(list, t14, now);</span>
+<span class="nc" id="L825">            double older = successRateBetween(list, t28, t14);</span>
+<span class="nc" id="L826">            String trend = &quot;STABLE&quot;;</span>
+<span class="nc bnc" id="L827" title="All 4 branches missed.">            if (older &gt;= 0 &amp;&amp; recent - older &gt; 5) trend = &quot;UP&quot;;</span>
+<span class="nc bnc" id="L828" title="All 4 branches missed.">            else if (older &gt;= 0 &amp;&amp; older - recent &gt; 5) trend = &quot;DOWN&quot;;</span>
+<span class="nc" id="L829">            out.add(ActionAccuracyDTO.builder()</span>
+<span class="nc" id="L830">                    .actionType(action)</span>
+<span class="nc" id="L831">                    .total(total)</span>
+<span class="nc" id="L832">                    .successes(successes)</span>
+<span class="nc" id="L833">                    .accuracy(round2(acc))</span>
+<span class="nc" id="L834">                    .trend(trend)</span>
+<span class="nc" id="L835">                    .build());</span>
+<span class="nc" id="L836">        }</span>
+<span class="nc" id="L837">        out.sort(Comparator.comparing(ActionAccuracyDTO::getActionType));</span>
+<span class="nc" id="L838">        return out;</span>
+    }
+
+    private static double successRateBetween(List&lt;InterventionLog&gt; list, LocalDateTime from, LocalDateTime to) {
+<span class="nc" id="L842">        List&lt;InterventionLog&gt; slice = list.stream()</span>
+<span class="nc bnc" id="L843" title="All 2 branches missed.">                .filter(l -&gt; l.getExecutedAt() != null</span>
+<span class="nc bnc" id="L844" title="All 2 branches missed.">                        &amp;&amp; !l.getExecutedAt().isBefore(from)</span>
+<span class="nc bnc" id="L845" title="All 2 branches missed.">                        &amp;&amp; l.getExecutedAt().isBefore(to))</span>
+<span class="nc bnc" id="L846" title="All 4 branches missed.">                .filter(l -&gt; &quot;SUCCESS&quot;.equalsIgnoreCase(l.getOutcome()) || &quot;MISS&quot;.equalsIgnoreCase(l.getOutcome()))</span>
+<span class="nc" id="L847">                .collect(Collectors.toList());</span>
+<span class="nc bnc" id="L848" title="All 2 branches missed.">        if (slice.isEmpty()) return -1;</span>
+<span class="nc" id="L849">        long ok = slice.stream().filter(l -&gt; &quot;SUCCESS&quot;.equalsIgnoreCase(l.getOutcome())).count();</span>
+<span class="nc" id="L850">        return 100.0 * ok / slice.size();</span>
+    }
+
+    @Transactional(readOnly = true)
+    public List&lt;UpgradeCandidateDTO&gt; upgradePressure() {
+<span class="nc" id="L855">        int maxTier = pricingPlanRepository.findByIsActiveTrue().stream()</span>
+<span class="nc" id="L856">                .mapToInt(SubscriptionAIService::planTier)</span>
+<span class="nc" id="L857">                .max()</span>
+<span class="nc" id="L858">                .orElse(3);</span>
+<span class="nc" id="L859">        List&lt;UpgradeCandidateDTO&gt; out = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L860" title="All 2 branches missed.">        for (Subscription s : subscriptionRepository.findAllActiveWithPlans()) {</span>
+<span class="nc bnc" id="L861" title="All 2 branches missed.">            if (s.getPricingPlan() == null) continue;</span>
+<span class="nc bnc" id="L862" title="All 2 branches missed.">            if (planTier(s.getPricingPlan()) &gt;= maxTier) continue;</span>
+<span class="nc" id="L863">            long months = ChronoUnit.MONTHS.between(</span>
+<span class="nc bnc" id="L864" title="All 2 branches missed.">                    s.getStartDate() != null ? s.getStartDate().toLocalDate().withDayOfMonth(1) : LocalDate.now(),</span>
+<span class="nc" id="L865">                    LocalDate.now().withDayOfMonth(1));</span>
+<span class="nc" id="L866">            int tenure = (int) Math.max(0, Math.min(120, months + 1));</span>
+<span class="nc bnc" id="L867" title="All 2 branches missed.">            int score = (int) Math.round(Math.min(100, tenure * 0.4 + (s.isAutoRenew() ? 30 : 0)</span>
+<span class="nc bnc" id="L868" title="All 2 branches missed.">                    + (&quot;YEARLY&quot;.equalsIgnoreCase(s.getBillingCycle()) ? 30 : 0)));</span>
+<span class="nc bnc" id="L869" title="All 2 branches missed.">            String pitch = score &gt;= 70</span>
+<span class="nc" id="L870">                    ? &quot;Proposer migration vers le plan supérieur avec démo personnalisée&quot;</span>
+<span class="nc bnc" id="L871" title="All 2 branches missed.">                    : (score &gt;= 40</span>
+<span class="nc" id="L872">                    ? &quot;Mettre en avant les fonctionnalités premium par e-mail ciblé&quot;</span>
+<span class="nc" id="L873">                    : &quot;Newsletter soft sur les bénéfices du niveau supérieur&quot;);</span>
+<span class="nc" id="L874">            out.add(UpgradeCandidateDTO.builder()</span>
+<span class="nc" id="L875">                    .userId(s.getUserId())</span>
+<span class="nc" id="L876">                    .plan(s.getPricingPlan().getName())</span>
+<span class="nc" id="L877">                    .tenureMonths(tenure)</span>
+<span class="nc" id="L878">                    .autoRenew(s.isAutoRenew())</span>
+<span class="nc" id="L879">                    .upgradeScore(score)</span>
+<span class="nc" id="L880">                    .recommendedPitch(pitch)</span>
+<span class="nc" id="L881">                    .build());</span>
+<span class="nc" id="L882">        }</span>
+<span class="nc" id="L883">        out.sort(Comparator.comparingInt(UpgradeCandidateDTO::getUpgradeScore).reversed());</span>
+<span class="nc" id="L884">        return out;</span>
+    }
+
+    @Transactional(readOnly = true)
+    public List&lt;AnomalyDTO&gt; behavioralAnomalies() {
+<span class="nc" id="L889">        List&lt;Subscription&gt; subs = subscriptionRepository.findAll();</span>
+<span class="nc" id="L890">        List&lt;PaymentRecord&gt; payments = paymentRecordRepository.findAll();</span>
+<span class="nc" id="L891">        LocalDate today = LocalDate.now();</span>
+<span class="nc" id="L892">        List&lt;Double&gt; seriesNew = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L893">        List&lt;Double&gt; seriesCancel = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L894">        List&lt;Double&gt; seriesFail = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L895" title="All 2 branches missed.">        for (int d = 1; d &lt;= 28; d++) {</span>
+<span class="nc" id="L896">            LocalDate day = today.minusDays(d);</span>
+<span class="nc" id="L897">            seriesNew.add((double) countNewSubsOnDay(subs, day));</span>
+<span class="nc" id="L898">            seriesCancel.add((double) countCancellationsOnDay(subs, day));</span>
+<span class="nc" id="L899">            seriesFail.add((double) countFailedPaymentsOnDay(payments, day));</span>
+        }
+<span class="nc" id="L901">        double todayNew = countNewSubsOnDay(subs, today);</span>
+<span class="nc" id="L902">        double todayCancel = countCancellationsOnDay(subs, today);</span>
+<span class="nc" id="L903">        double todayFail = countFailedPaymentsOnDay(payments, today);</span>
+<span class="nc" id="L904">        List&lt;AnomalyDTO&gt; out = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L905">        out.add(buildAnomaly(&quot;NEW_SUBS&quot;, &quot;Nouveaux abonnements&quot;, todayNew, seriesNew));</span>
+<span class="nc" id="L906">        out.add(buildAnomaly(&quot;CANCELLATIONS&quot;, &quot;Annulations&quot;, todayCancel, seriesCancel));</span>
+<span class="nc" id="L907">        out.add(buildAnomaly(&quot;PAYMENT_FAILURES&quot;, &quot;Paiements échoués&quot;, todayFail, seriesFail));</span>
+<span class="nc" id="L908">        return out;</span>
+    }
+
+    private static AnomalyDTO buildAnomaly(String key, String label, double todayVal, List&lt;Double&gt; history28) {
+<span class="nc" id="L912">        double mu = history28.stream().mapToDouble(Double::doubleValue).average().orElse(0);</span>
+<span class="nc" id="L913">        double sigma = stddev(history28);</span>
+<span class="nc bnc" id="L914" title="All 2 branches missed.">        double z = sigma &gt; 1e-9 ? (todayVal - mu) / sigma : 0;</span>
+<span class="nc bnc" id="L915" title="All 2 branches missed.">        boolean anom = Math.abs(z) &gt; 2.0;</span>
+<span class="nc bnc" id="L916" title="All 4 branches missed.">        String sev = Math.abs(z) &lt;= 2 ? &quot;NORMAL&quot; : (Math.abs(z) &lt;= 3 ? &quot;WARNING&quot; : &quot;CRITICAL&quot;);</span>
+<span class="nc" id="L917">        return AnomalyDTO.builder()</span>
+<span class="nc" id="L918">                .metric(key)</span>
+<span class="nc" id="L919">                .metricLabel(label)</span>
+<span class="nc" id="L920">                .todayValue(round2(todayVal))</span>
+<span class="nc" id="L921">                .mean(round2(mu))</span>
+<span class="nc" id="L922">                .stddev(round2(sigma))</span>
+<span class="nc" id="L923">                .zScore(round2(z))</span>
+<span class="nc" id="L924">                .anomaly(anom)</span>
+<span class="nc" id="L925">                .severity(sev)</span>
+<span class="nc" id="L926">                .build();</span>
+    }
+
+    private static double stddev(List&lt;Double&gt; vals) {
+<span class="nc bnc" id="L930" title="All 2 branches missed.">        if (vals.isEmpty()) return 0;</span>
+<span class="nc" id="L931">        double mean = vals.stream().mapToDouble(Double::doubleValue).average().orElse(0);</span>
+<span class="nc" id="L932">        double var = vals.stream().mapToDouble(v -&gt; (v - mean) * (v - mean)).average().orElse(0);</span>
+<span class="nc" id="L933">        return Math.sqrt(var);</span>
+    }
+
+    private static int countNewSubsOnDay(List&lt;Subscription&gt; all, LocalDate day) {
+<span class="nc" id="L937">        return (int) all.stream()</span>
+<span class="nc bnc" id="L938" title="All 4 branches missed.">                .filter(s -&gt; s.getCreatedAt() != null &amp;&amp; s.getCreatedAt().toLocalDate().equals(day))</span>
+<span class="nc" id="L939">                .count();</span>
+    }
+
+    private static int countCancellationsOnDay(List&lt;Subscription&gt; all, LocalDate day) {
+<span class="nc" id="L943">        return (int) all.stream()</span>
+<span class="nc bnc" id="L944" title="All 2 branches missed.">                .filter(s -&gt; &quot;CANCELLED&quot;.equalsIgnoreCase(s.getStatus())</span>
+<span class="nc bnc" id="L945" title="All 2 branches missed.">                        &amp;&amp; s.getEndDate() != null</span>
+<span class="nc bnc" id="L946" title="All 2 branches missed.">                        &amp;&amp; s.getEndDate().toLocalDate().equals(day))</span>
+<span class="nc" id="L947">                .count();</span>
+    }
+
+    private static int countFailedPaymentsOnDay(List&lt;PaymentRecord&gt; all, LocalDate day) {
+<span class="nc" id="L951">        return (int) all.stream()</span>
+<span class="nc bnc" id="L952" title="All 2 branches missed.">                .filter(p -&gt; &quot;FAILED&quot;.equalsIgnoreCase(p.getStatus())</span>
+<span class="nc bnc" id="L953" title="All 2 branches missed.">                        &amp;&amp; p.getCreatedAt() != null</span>
+<span class="nc bnc" id="L954" title="All 2 branches missed.">                        &amp;&amp; p.getCreatedAt().toLocalDate().equals(day))</span>
+<span class="nc" id="L955">                .count();</span>
+    }
+
+    private static double round2(double v) {
+<span class="nc" id="L959">        return Math.round(v * 100.0) / 100.0;</span>
+    }
+
+<span class="nc" id="L962">    private record ScoredReason(int points, String label) {}</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

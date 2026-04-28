@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>UnlockChatController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.controller</a> &gt; <span class="el_source">UnlockChatController.java</span></div><h1>UnlockChatController.java</h1><pre class="source lang-java linenums">package esprit.subscription.controller;
+
+import esprit.subscription.DTO.unlockchat.*;
+import esprit.subscription.config.LivenessAdminAuthHelper;
+
+import esprit.subscription.entity.UnlockChatMessage;
+import esprit.subscription.entity.UnlockChatSession;
+import esprit.subscription.service.SseStreamService;
+import esprit.subscription.service.UnlockChatAiAnalysisService;
+import esprit.subscription.service.UnlockChatService;
+import jakarta.annotation.PostConstruct;
+import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import java.util.Map;
+
+/**
+ * Manual admin–user unlock chat. Do not add {@code @CrossOrigin}: the gateway sets CORS.
+ */
+@RestController
+@RequestMapping({&quot;/api/unlock-chat&quot;, &quot;/sub/unlock-chat&quot;})
+public class UnlockChatController {
+
+<span class="fc" id="L32">    private static final Logger log = LoggerFactory.getLogger(UnlockChatController.class);</span>
+
+    private final UnlockChatService unlockChatService;
+    private final SseStreamService sseStreamService;
+    private final LivenessAdminAuthHelper adminAuthHelper;
+    private final UnlockChatAiAnalysisService unlockChatAiAnalysisService;
+
+    public UnlockChatController(
+            UnlockChatService unlockChatService,
+            SseStreamService sseStreamService,
+            LivenessAdminAuthHelper adminAuthHelper,
+<span class="fc" id="L43">            UnlockChatAiAnalysisService unlockChatAiAnalysisService) {</span>
+<span class="fc" id="L44">        this.unlockChatService = unlockChatService;</span>
+<span class="fc" id="L45">        this.sseStreamService = sseStreamService;</span>
+<span class="fc" id="L46">        this.adminAuthHelper = adminAuthHelper;</span>
+<span class="fc" id="L47">        this.unlockChatAiAnalysisService = unlockChatAiAnalysisService;</span>
+<span class="fc" id="L48">    }</span>
+
+    @PostConstruct
+    void logMappings() {
+<span class="fc" id="L52">        log.info(&quot;Unlock-chat API ready: GET /api/unlock-chat/ping — if you see 404 on this URL, restart subscription with a freshly built JAR (mvnw package).&quot;);</span>
+<span class="fc" id="L53">    }</span>
+
+    /** Sanity check: GET must return 200 after deploy. A 404 here means an outdated subscription process is still running. */
+    @GetMapping(&quot;/ping&quot;)
+    public Map&lt;String, Object&gt; ping() {
+<span class="nc" id="L58">        return Map.of(&quot;ok&quot;, true, &quot;service&quot;, &quot;unlock-chat&quot;);</span>
+    }
+
+    @PostMapping(&quot;/start&quot;)
+    public ResponseEntity&lt;UnlockChatSessionDTO&gt; start(@RequestBody UnlockChatStartRequest body) {
+<span class="nc" id="L63">        UnlockChatSession session = unlockChatService.openSession(</span>
+<span class="nc" id="L64">                body.getUserId(), body.getBlockId(), body.getMessage());</span>
+<span class="nc" id="L65">        return ResponseEntity.ok(unlockChatService.getSession(session.getId()));</span>
+    }
+
+    @PostMapping(&quot;/message&quot;)
+    public ResponseEntity&lt;UnlockChatMessageDTO&gt; userMessage(@RequestBody UserMessageRequest body) {
+<span class="nc" id="L70">        UnlockChatMessage m = unlockChatService.userSendMessage(</span>
+<span class="nc" id="L71">                body.getSessionId(), body.getUserId(), body.getContent());</span>
+<span class="nc" id="L72">        return ResponseEntity.ok(unlockChatService.toMessageDto(m));</span>
+    }
+
+    /**
+     * No resumable session → 204 (avoids noisy 404 in browsers for “no chat yet”).
+     */
+    @GetMapping(&quot;/session/{userId}&quot;)
+    public ResponseEntity&lt;UnlockChatSessionDTO&gt; userSession(@PathVariable String userId) {
+<span class="nc" id="L80">        return unlockChatService.getResumeStateForUser(userId)</span>
+<span class="nc" id="L81">                .map(dto -&gt; ResponseEntity.ok()</span>
+<span class="nc" id="L82">                        .cacheControl(CacheControl.noStore())</span>
+<span class="nc" id="L83">                        .body(dto))</span>
+<span class="nc" id="L84">                .orElseGet(() -&gt; ResponseEntity.status(HttpStatus.NO_CONTENT)</span>
+<span class="nc" id="L85">                        .cacheControl(CacheControl.noStore())</span>
+<span class="nc" id="L86">                        .build());</span>
+    }
+
+    @GetMapping(&quot;/session/{userId}/open&quot;)
+    public ResponseEntity&lt;UnlockChatSessionDTO&gt; userOpenSessionOnly(@PathVariable String userId) {
+<span class="nc" id="L91">        return unlockChatService.getOpenSessionForUser(userId)</span>
+<span class="nc" id="L92">                .map(dto -&gt; ResponseEntity.ok()</span>
+<span class="nc" id="L93">                        .cacheControl(CacheControl.noStore())</span>
+<span class="nc" id="L94">                        .body(dto))</span>
+<span class="nc" id="L95">                .orElse(ResponseEntity.notFound().build());</span>
+    }
+
+    @GetMapping(value = &quot;/user/stream/{userId}&quot;, produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter userStream(@PathVariable String userId) {
+<span class="nc" id="L100">        return sseStreamService.subscribeUser(userId);</span>
+    }
+
+    @GetMapping(&quot;/admin/sessions&quot;)
+    public ResponseEntity&lt;java.util.List&lt;UnlockChatSessionSummaryDTO&gt;&gt; adminSessions(HttpServletRequest request) {
+<span class="nc" id="L105">        adminAuthHelper.requireAdminSecret(request);</span>
+<span class="nc" id="L106">        return ResponseEntity.ok(unlockChatService.getOpenSessions());</span>
+    }
+
+    @GetMapping(&quot;/admin/sessions/{sessionId}&quot;)
+    public ResponseEntity&lt;UnlockChatSessionDTO&gt; adminSession(
+            @PathVariable Long sessionId,
+            HttpServletRequest request) {
+<span class="nc" id="L113">        adminAuthHelper.requireAdminSecret(request);</span>
+<span class="nc" id="L114">        return ResponseEntity.ok(unlockChatService.getSession(sessionId));</span>
+    }
+
+    @PostMapping(&quot;/admin/message&quot;)
+    public ResponseEntity&lt;UnlockChatMessageDTO&gt; adminMessage(
+            @RequestBody AdminMessageRequest body,
+            HttpServletRequest request) {
+<span class="nc" id="L121">        adminAuthHelper.requireAdminSecret(request);</span>
+<span class="nc" id="L122">        UnlockChatMessage m = unlockChatService.adminSendMessage(</span>
+<span class="nc" id="L123">                body.getSessionId(),</span>
+<span class="nc bnc" id="L124" title="All 2 branches missed.">                body.getAdminUsername() != null ? body.getAdminUsername() : &quot;admin&quot;,</span>
+<span class="nc" id="L125">                body.getContent());</span>
+<span class="nc" id="L126">        return ResponseEntity.ok(unlockChatService.toMessageDto(m));</span>
+    }
+
+    @PostMapping(&quot;/admin/sessions/{sessionId}/grant&quot;)
+    public ResponseEntity&lt;Map&lt;String, Boolean&gt;&gt; grant(
+            @PathVariable Long sessionId,
+            @RequestBody(required = false) AdminUsernameBody body,
+            HttpServletRequest request) {
+<span class="nc" id="L134">        adminAuthHelper.requireAdminSecret(request);</span>
+<span class="nc bnc" id="L135" title="All 4 branches missed.">        String admin = body != null &amp;&amp; body.getAdminUsername() != null ? body.getAdminUsername() : &quot;admin&quot;;</span>
+<span class="nc" id="L136">        unlockChatService.grantAccess(sessionId, admin);</span>
+<span class="nc" id="L137">        return ResponseEntity.ok(Map.of(&quot;success&quot;, true));</span>
+    }
+
+    /**
+     * Même effet que {@link #grant} mais {@code sessionId} dans le corps JSON — préféré par le front si un proxy
+     * ou la gateway pose problème sur les chemins avec plusieurs segments.
+     */
+    @PostMapping(&quot;/admin/grant-access&quot;)
+    public ResponseEntity&lt;Map&lt;String, Boolean&gt;&gt; grantByBody(
+            @RequestBody GrantAccessBody body,
+            HttpServletRequest request) {
+<span class="nc" id="L148">        adminAuthHelper.requireAdminSecret(request);</span>
+<span class="nc bnc" id="L149" title="All 4 branches missed.">        if (body == null || body.getSessionId() == null) {</span>
+<span class="nc" id="L150">            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, &quot;sessionId required&quot;);</span>
+        }
+<span class="nc bnc" id="L152" title="All 2 branches missed.">        String admin = body.getAdminUsername() != null ? body.getAdminUsername() : &quot;admin&quot;;</span>
+<span class="nc" id="L153">        unlockChatService.grantAccess(body.getSessionId(), admin);</span>
+<span class="nc" id="L154">        return ResponseEntity.ok(Map.of(&quot;success&quot;, true));</span>
+    }
+
+    @PostMapping(&quot;/admin/sessions/{sessionId}/reject&quot;)
+    public ResponseEntity&lt;Map&lt;String, Boolean&gt;&gt; reject(
+            @PathVariable Long sessionId,
+            @RequestBody AdminRejectBody body,
+            HttpServletRequest request) {
+<span class="nc" id="L162">        adminAuthHelper.requireAdminSecret(request);</span>
+<span class="nc bnc" id="L163" title="All 2 branches missed.">        String admin = body.getAdminUsername() != null ? body.getAdminUsername() : &quot;admin&quot;;</span>
+<span class="nc bnc" id="L164" title="All 2 branches missed.">        String reason = body.getReason() != null ? body.getReason() : &quot;&quot;;</span>
+<span class="nc" id="L165">        unlockChatService.rejectAccess(sessionId, admin, reason);</span>
+<span class="nc" id="L166">        return ResponseEntity.ok(Map.of(&quot;success&quot;, true));</span>
+    }
+
+    /** Re-run Groq fraud analysis for this session (async). */
+    @PostMapping(&quot;/admin/sessions/{sessionId}/analyze-ai&quot;)
+    public ResponseEntity&lt;Map&lt;String, String&gt;&gt; analyzeAi(
+            @PathVariable Long sessionId,
+            HttpServletRequest request) {
+<span class="nc" id="L174">        adminAuthHelper.requireAdminSecret(request);</span>
+<span class="nc" id="L175">        unlockChatAiAnalysisService.scheduleForcedAnalysis(sessionId);</span>
+<span class="nc" id="L176">        return ResponseEntity.accepted().body(Map.of(&quot;status&quot;, &quot;scheduled&quot;));</span>
+    }
+
+    /**
+     * Same as {@link #analyzeAi} but session id in JSON body — use this if the path-variable URL 404s behind a proxy.
+     */
+    @PostMapping(&quot;/admin/analyze-ai&quot;)
+    public ResponseEntity&lt;Map&lt;String, String&gt;&gt; analyzeAiByBody(
+            @RequestBody AnalyzeAiRequest body,
+            HttpServletRequest request) {
+<span class="nc" id="L186">        adminAuthHelper.requireAdminSecret(request);</span>
+<span class="nc bnc" id="L187" title="All 4 branches missed.">        if (body == null || body.getSessionId() == null) {</span>
+<span class="nc" id="L188">            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, &quot;sessionId required&quot;);</span>
+        }
+<span class="nc" id="L190">        unlockChatAiAnalysisService.scheduleForcedAnalysis(body.getSessionId());</span>
+<span class="nc" id="L191">        return ResponseEntity.accepted().body(Map.of(&quot;status&quot;, &quot;scheduled&quot;));</span>
+    }
+
+    @GetMapping(value = &quot;/admin/stream&quot;, produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter adminStream(HttpServletRequest request) {
+<span class="nc" id="L196">        adminAuthHelper.requireAdminSecret(request);</span>
+<span class="nc" id="L197">        return sseStreamService.subscribeAdmin();</span>
+    }
+
+    /** SSE dédié aux alertes admin (séparé du flux unlock-chat inbox). */
+    @GetMapping(value = &quot;/admin/notifications/stream&quot;, produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter adminNotificationsStream(HttpServletRequest request) {
+<span class="nc" id="L203">        adminAuthHelper.requireAdminSecret(request);</span>
+<span class="nc" id="L204">        return sseStreamService.subscribeAdminNotifications();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

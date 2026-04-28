@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ChallengeGesture.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.entity</a> &gt; <span class="el_source">ChallengeGesture.java</span></div><h1>ChallengeGesture.java</h1><pre class="source lang-java linenums">package esprit.subscription.entity;
+
+import java.util.EnumSet;
+import java.util.concurrent.ThreadLocalRandom;
+
+<span class="fc" id="L6">public enum ChallengeGesture {</span>
+<span class="fc" id="L7">    TWO_FINGERS,</span>
+<span class="fc" id="L8">    THUMBS_UP,</span>
+<span class="fc" id="L9">    OPEN_PALM,</span>
+<span class="fc" id="L10">    ONE_FINGER,</span>
+<span class="fc" id="L11">    FIST;</span>
+
+<span class="fc" id="L13">    private static final ChallengeGesture[] VALUES = values();</span>
+
+    public static ChallengeGesture random() {
+<span class="nc" id="L16">        return VALUES[ThreadLocalRandom.current().nextInt(VALUES.length)];</span>
+    }
+
+    public String frenchLabel() {
+<span class="nc bnc" id="L20" title="All 5 branches missed.">        return switch (this) {</span>
+<span class="nc" id="L21">            case TWO_FINGERS -&gt; &quot;Montrez deux doigts&quot;;</span>
+<span class="nc" id="L22">            case THUMBS_UP -&gt; &quot;Pouce levé&quot;;</span>
+<span class="nc" id="L23">            case OPEN_PALM -&gt; &quot;Paume ouverte (cinq doigts)&quot;;</span>
+<span class="nc" id="L24">            case ONE_FINGER -&gt; &quot;Un seul doigt levé&quot;;</span>
+<span class="nc" id="L25">            case FIST -&gt; &quot;Poing fermé&quot;;</span>
+        };
+    }
+
+    public static EnumSet&lt;ChallengeGesture&gt; all() {
+<span class="nc" id="L30">        return EnumSet.allOf(ChallengeGesture.class);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

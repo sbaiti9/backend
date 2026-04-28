@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>UnlockChatSession.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.entity</a> &gt; <span class="el_source">UnlockChatSession.java</span></div><h1>UnlockChatSession.java</h1><pre class="source lang-java linenums">package esprit.subscription.entity;
+
+import jakarta.persistence.*;
+import lombok.*;
+
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+
+@Entity
+@Table(name = &quot;unlock_chat_sessions&quot;)
+@Getter
+<span class="nc" id="L13">@Setter</span>
+<span class="fc" id="L14">@NoArgsConstructor</span>
+<span class="nc" id="L15">@AllArgsConstructor</span>
+<span class="pc bnc" id="L16" title="All 2 branches missed.">@Builder</span>
+public class UnlockChatSession {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+<span class="nc" id="L21">    private Long id;</span>
+
+    @Column(name = &quot;user_id&quot;, nullable = false, length = 64)
+<span class="nc" id="L24">    private String userId;</span>
+
+    @Column(name = &quot;block_id&quot;, nullable = false)
+<span class="nc" id="L27">    private Long blockId;</span>
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = &quot;status&quot;, nullable = false, length = 32)
+<span class="nc" id="L31">    private ChatSessionStatus status;</span>
+
+    @Column(name = &quot;created_at&quot;, nullable = false)
+<span class="nc" id="L34">    private LocalDateTime createdAt;</span>
+
+    @Column(name = &quot;closed_at&quot;)
+<span class="nc" id="L37">    private LocalDateTime closedAt;</span>
+
+    @Column(name = &quot;closed_by&quot;, length = 255)
+<span class="nc" id="L40">    private String closedBy;</span>
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = &quot;ai_decision&quot;, length = 16)
+<span class="nc" id="L44">    private AiDecision aiDecision;</span>
+
+    @Column(name = &quot;ai_confidence&quot;)
+<span class="nc" id="L47">    private Integer aiConfidence;</span>
+
+    @Column(name = &quot;ai_reasoning&quot;, columnDefinition = &quot;TEXT&quot;)
+<span class="nc" id="L50">    private String aiReasoning;</span>
+
+    @Column(name = &quot;ai_recommend_unblock&quot;)
+<span class="nc" id="L53">    private Boolean aiRecommendUnblock;</span>
+
+    @Column(name = &quot;ai_analyzed_at&quot;)
+<span class="nc" id="L56">    private LocalDateTime aiAnalyzedAt;</span>
+
+    @OneToMany(mappedBy = &quot;session&quot;, cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @OrderBy(&quot;sentAt ASC&quot;)
+    @Builder.Default
+<span class="nc" id="L61">    private List&lt;UnlockChatMessage&gt; messages = new ArrayList&lt;&gt;();</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

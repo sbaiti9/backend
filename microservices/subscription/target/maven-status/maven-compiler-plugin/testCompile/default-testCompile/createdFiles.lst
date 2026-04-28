@@ -1,0 +1,7 @@
+esprit\subscription\service\FraudDetectionServiceTest.class
+esprit\subscription\service\SubscriptionServiceTest.class
+esprit\subscription\controller\SubscriptionAIControllerTest.class
+esprit\subscription\SubscriptionApplicationTests.class
+esprit\subscription\service\LoyaltyServiceTest.class
+esprit\subscription\service\PlanAdvisorAiServiceTest.class
+esprit\subscription\service\TutorSalaryRecommendationServiceTest.class

@@ -1,0 +1,403 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>UnlockChatAiProcessor.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.service</a> &gt; <span class="el_source">UnlockChatAiProcessor.java</span></div><h1>UnlockChatAiProcessor.java</h1><pre class="source lang-java linenums">package esprit.subscription.service;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import esprit.subscription.DTO.unlockchat.UnlockChatMessageDTO;
+import esprit.subscription.config.LivenessAdminAuthHelper;
+import esprit.subscription.entity.AdminNotification;
+import esprit.subscription.entity.AiDecision;
+import esprit.subscription.entity.ChatSessionStatus;
+import esprit.subscription.entity.MessageSender;
+import esprit.subscription.entity.UnlockChatMessage;
+import esprit.subscription.entity.UnlockChatSession;
+import esprit.subscription.repository.UnlockChatMessageRepository;
+import esprit.subscription.repository.UnlockChatSessionRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+/**
+ * Runs Groq-based fraud analysis after user messages in unlock-chat.
+ */
+@Service
+public class UnlockChatAiProcessor {
+
+<span class="fc" id="L39">    private static final Logger log = LoggerFactory.getLogger(UnlockChatAiProcessor.class);</span>
+
+    private static final String SYSTEM_PROMPT = &quot;&quot;&quot;
+            You are a fraud detection agent for a payment verification system.
+            Analyze this conversation between a user and support.
+            The user failed an automated liveness camera test and is requesting manual access.
+
+            Evaluate based on:
+            - Coherence and consistency of answers
+            - Natural human conversational patterns
+            - Ability to answer context-specific questions
+            - Signs of scripted/bot responses (too fast, repetitive, unnatural)
+            - Emotional context (frustration, confusion = human signals)
+            - Short polite exchanges alone are NOT enough to label BOT; prefer UNCERTAIN or lower confidence unless evidence is strong.
+
+            Confidence must reflect evidence: use the full 0-100 range. Do NOT default to round numbers like 80, 75, or 50 unless the transcript supports them.
+            If the conversation is too short to tell, use UNCERTAIN with confidence under 60.
+
+            Respond ONLY with valid JSON:
+            {
+              &quot;decision&quot;: &quot;HUMAN&quot; | &quot;BOT&quot; | &quot;UNCERTAIN&quot;,
+              &quot;confidence&quot;: 0-100,
+              &quot;reasoning&quot;: &quot;one sentence explanation&quot;,
+              &quot;recommendUnblock&quot;: true | false
+            }
+
+            Only set recommendUnblock=true if decision=HUMAN and confidence &gt;= 75.
+            &quot;&quot;&quot;;
+
+    private static final String MSG_AI_UNBLOCK = &quot;&quot;&quot;
+            ✅ Notre agent IA a analysé votre conversation et vous a identifié comme humain. Votre accès au paiement a été restauré automatiquement.&quot;&quot;&quot;;
+
+    private static final String MSG_AI_ESCALATE = &quot;&quot;&quot;
+            🚫 Notre agent IA n'a pas pu confirmer votre identité. Un administrateur humain va examiner votre cas.&quot;&quot;&quot;;
+
+    private final GroqChatClient groqChatClient;
+    private final UnlockChatSessionRepository sessionRepository;
+    private final UnlockChatMessageRepository messageRepository;
+    private final UserBlockService userBlockService;
+    private final SseStreamService sseStreamService;
+    private final ObjectMapper objectMapper;
+    private final EmailService emailService;
+    private final AdminNotificationService adminNotificationService;
+    private final LivenessAdminAuthHelper livenessAdminAuthHelper;
+
+    @Value(&quot;${liveness.admin.email:}&quot;)
+    private String livenessAdminEmail;
+
+    /** Si false (défaut) : pas d’e-mail — jeton + SSE + cloche uniquement. */
+    @Value(&quot;${liveness.admin.email.human-review.enabled:false}&quot;)
+    private boolean humanReviewEmailEnabled;
+
+    @Value(&quot;${liveness.admin.notification.enabled:true}&quot;)
+    private boolean livenessAdminNotificationEnabled;
+
+    /** Min USER messages before escalade NEEDS_HUMAN_REVIEW + notification (was 10: too high for short chats). */
+    @Value(&quot;${skillio.unlock-chat.ai.escalate-min-user-messages:3}&quot;)
+    private int escalateMinUserMessages;
+
+    @Value(&quot;${skillio.unlock-chat.groq.temperature:0.42}&quot;)
+    private double groqTemperature;
+
+    @Value(&quot;${skillio.unlock-chat.groq.forced-temperature:0.78}&quot;)
+    private double groqForcedTemperature;
+
+    public UnlockChatAiProcessor(
+            GroqChatClient groqChatClient,
+            UnlockChatSessionRepository sessionRepository,
+            UnlockChatMessageRepository messageRepository,
+            UserBlockService userBlockService,
+            SseStreamService sseStreamService,
+            ObjectMapper objectMapper,
+            EmailService emailService,
+            AdminNotificationService adminNotificationService,
+<span class="fc" id="L113">            LivenessAdminAuthHelper livenessAdminAuthHelper) {</span>
+<span class="fc" id="L114">        this.groqChatClient = groqChatClient;</span>
+<span class="fc" id="L115">        this.sessionRepository = sessionRepository;</span>
+<span class="fc" id="L116">        this.messageRepository = messageRepository;</span>
+<span class="fc" id="L117">        this.userBlockService = userBlockService;</span>
+<span class="fc" id="L118">        this.sseStreamService = sseStreamService;</span>
+<span class="fc" id="L119">        this.objectMapper = objectMapper;</span>
+<span class="fc" id="L120">        this.emailService = emailService;</span>
+<span class="fc" id="L121">        this.adminNotificationService = adminNotificationService;</span>
+<span class="fc" id="L122">        this.livenessAdminAuthHelper = livenessAdminAuthHelper;</span>
+<span class="fc" id="L123">    }</span>
+
+    @Transactional
+    public void process(Long sessionId, boolean adminForcedReanalysis) {
+<span class="nc" id="L127">        UnlockChatSession session = sessionRepository.findByIdWithMessages(sessionId).orElse(null);</span>
+<span class="nc bnc" id="L128" title="All 2 branches missed.">        if (session == null) {</span>
+<span class="nc" id="L129">            return;</span>
+        }
+<span class="nc" id="L131">        ChatSessionStatus st = session.getStatus();</span>
+<span class="nc" id="L132">        ChatSessionStatus statusBefore = st;</span>
+<span class="nc bnc" id="L133" title="All 4 branches missed.">        if (st != ChatSessionStatus.OPEN &amp;&amp; st != ChatSessionStatus.NEEDS_HUMAN_REVIEW) {</span>
+<span class="nc" id="L134">            return;</span>
+        }
+
+<span class="nc" id="L137">        List&lt;UnlockChatMessage&gt; all = messageRepository.findBySessionOrderBySentAtAsc(session);</span>
+<span class="nc" id="L138">        int from = Math.max(0, all.size() - 10);</span>
+<span class="nc" id="L139">        List&lt;UnlockChatMessage&gt; last = all.subList(from, all.size());</span>
+<span class="nc" id="L140">        String transcript = last.stream()</span>
+<span class="nc" id="L141">                .map(m -&gt; label(m.getSender()) + &quot;: &quot; + m.getContent())</span>
+<span class="nc" id="L142">                .collect(Collectors.joining(&quot;\n&quot;));</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">        if (adminForcedReanalysis) {</span>
+<span class="nc" id="L144">            transcript = transcript</span>
+                    + &quot;\n\n---\n[Admin re-analysis run &quot;
+<span class="nc" id="L146">                    + Instant.now().toEpochMilli()</span>
+                    + &quot;] Independent scoring pass — set confidence from current transcript only; it may legitimately differ from any prior run.\n&quot;;
+        }
+<span class="nc" id="L149">        transcript = transcript + &quot;\n[nonce=&quot; + UUID.randomUUID() + &quot;]\n&quot;;</span>
+
+<span class="nc bnc" id="L151" title="All 2 branches missed.">        double temp = adminForcedReanalysis ? groqForcedTemperature : groqTemperature;</span>
+<span class="nc" id="L152">        Optional&lt;String&gt; rawJson = groqChatClient.completeJson(SYSTEM_PROMPT, transcript, temp);</span>
+<span class="nc bnc" id="L153" title="All 2 branches missed.">        if (rawJson.isEmpty()) {</span>
+<span class="nc" id="L154">            log.warn(</span>
+                    &quot;Groq returned no response for session {} — check groq.api.enabled, groq.api.key / GROQ_API_KEY, network.&quot;,
+                    sessionId);
+<span class="nc" id="L157">            persistAnalysisFailure(</span>
+                    session,
+                    AiDecision.UNCERTAIN,
+                    &quot;Groq indisponible : clé API absente, désactivée, ou erreur réseau. &quot;
+                            + &quot;Configurez GROQ_API_KEY (ou groq.api.key) et redémarrez le service subscription.&quot;);
+<span class="nc" id="L162">            return;</span>
+        }
+
+        JsonNode node;
+        try {
+<span class="nc" id="L167">            node = parseAiJson(rawJson.get());</span>
+<span class="nc" id="L168">        } catch (Exception e) {</span>
+<span class="nc" id="L169">            log.warn(&quot;Could not parse AI JSON for session {}: {}&quot;, sessionId, e.getMessage());</span>
+<span class="nc" id="L170">            persistAnalysisFailure(</span>
+                    session,
+                    AiDecision.UNCERTAIN,
+<span class="nc" id="L173">                    &quot;Réponse IA non JSON ou illisible : &quot; + e.getMessage());</span>
+<span class="nc" id="L174">            return;</span>
+<span class="nc" id="L175">        }</span>
+
+<span class="nc" id="L177">        AiDecision decision = parseDecision(node.path(&quot;decision&quot;).asText(null));</span>
+<span class="nc" id="L178">        int confidence = parseConfidence(node);</span>
+<span class="nc" id="L179">        String reasoning = node.path(&quot;reasoning&quot;).asText(&quot;&quot;);</span>
+<span class="nc" id="L180">        boolean recommendUnblock = node.path(&quot;recommendUnblock&quot;).asBoolean(false);</span>
+
+<span class="nc" id="L182">        session.setAiDecision(decision);</span>
+<span class="nc bnc" id="L183" title="All 2 branches missed.">        session.setAiConfidence(confidence &gt;= 0 ? confidence : null);</span>
+<span class="nc" id="L184">        session.setAiReasoning(reasoning);</span>
+<span class="nc" id="L185">        session.setAiRecommendUnblock(recommendUnblock);</span>
+<span class="nc" id="L186">        session.setAiAnalyzedAt(LocalDateTime.now());</span>
+
+<span class="nc" id="L188">        long userMsgCount = messageRepository.countBySessionAndSender(session, MessageSender.USER);</span>
+<span class="nc" id="L189">        long adminMsgCount = messageRepository.countBySessionAndSender(session, MessageSender.ADMIN);</span>
+<span class="nc bnc" id="L190" title="All 6 branches missed.">        boolean enoughForEscalation = userMsgCount &gt;= escalateMinUserMessages</span>
+                || (userMsgCount &gt;= 1 &amp;&amp; adminMsgCount &gt;= 1);
+
+<span class="nc bnc" id="L193" title="All 6 branches missed.">        boolean humanUnlock = recommendUnblock</span>
+                &amp;&amp; decision == AiDecision.HUMAN
+                &amp;&amp; confidence &gt;= 75;
+
+<span class="nc bnc" id="L197" title="All 2 branches missed.">        if (humanUnlock) {</span>
+<span class="nc" id="L198">            session.setStatus(ChatSessionStatus.AI_RESOLVED);</span>
+<span class="nc" id="L199">            session.setClosedAt(LocalDateTime.now());</span>
+<span class="nc" id="L200">            session.setClosedBy(&quot;unlock-ai&quot;);</span>
+<span class="nc" id="L201">            userBlockService.approveUnlock(session.getBlockId(), &quot;unlock-ai&quot;);</span>
+<span class="nc" id="L202">            UnlockChatMessage sys = appendSystemMessage(session, MSG_AI_UNBLOCK.trim());</span>
+<span class="nc" id="L203">            sessionRepository.saveAndFlush(session);</span>
+<span class="nc" id="L204">            sseStreamService.pushToUser(session.getUserId(), &quot;new-message&quot;, toDto(sys, session.getId()));</span>
+<span class="nc" id="L205">            sseStreamService.pushToUser(session.getUserId(), &quot;unlock-decision&quot;, Map.of(&quot;decision&quot;, &quot;ai_granted&quot;));</span>
+<span class="nc" id="L206">            sseStreamService.pushToAdmin(&quot;session-updated&quot;, Map.of(&quot;sessionId&quot;, session.getId(), &quot;status&quot;, &quot;AI_RESOLVED&quot;));</span>
+<span class="nc" id="L207">            return;</span>
+        }
+
+<span class="nc bnc" id="L210" title="All 6 branches missed.">        if (enoughForEscalation &amp;&amp; decision == AiDecision.BOT &amp;&amp; !recommendUnblock) {</span>
+<span class="nc bnc" id="L211" title="All 2 branches missed.">            if (statusBefore == ChatSessionStatus.OPEN) {</span>
+<span class="nc" id="L212">                session.setStatus(ChatSessionStatus.NEEDS_HUMAN_REVIEW);</span>
+<span class="nc" id="L213">                UnlockChatMessage sys = appendSystemMessage(session, MSG_AI_ESCALATE.trim());</span>
+<span class="nc" id="L214">                sessionRepository.saveAndFlush(session);</span>
+<span class="nc" id="L215">                long totalMessages = messageRepository.countBySession(session);</span>
+<span class="nc" id="L216">                sseStreamService.pushToUser(session.getUserId(), &quot;new-message&quot;, toDto(sys, session.getId()));</span>
+<span class="nc" id="L217">                sseStreamService.pushToAdmin(&quot;session-updated&quot;, Map.of(&quot;sessionId&quot;, session.getId(), &quot;status&quot;, &quot;NEEDS_HUMAN_REVIEW&quot;));</span>
+<span class="nc" id="L218">                notifyAdminsHumanReviewRequired(session, totalMessages);</span>
+<span class="nc" id="L219">            } else {</span>
+<span class="nc" id="L220">                sessionRepository.save(session);</span>
+<span class="nc" id="L221">                sseStreamService.pushToAdmin(&quot;session-updated&quot;, Map.of(&quot;sessionId&quot;, session.getId(), &quot;aiAnalyzed&quot;, true));</span>
+            }
+<span class="nc" id="L223">            return;</span>
+        }
+
+<span class="nc" id="L226">        sessionRepository.save(session);</span>
+<span class="nc" id="L227">        sseStreamService.pushToAdmin(&quot;session-updated&quot;, Map.of(&quot;sessionId&quot;, session.getId(), &quot;aiAnalyzed&quot;, true));</span>
+<span class="nc" id="L228">    }</span>
+
+    /**
+     * Email + SSE + persistance admin — ne doit jamais bloquer le flux unlock-chat.
+     */
+    private void notifyAdminsHumanReviewRequired(UnlockChatSession session, long messageCount) {
+<span class="nc bnc" id="L234" title="All 2 branches missed.">        if (!livenessAdminNotificationEnabled) {</span>
+<span class="nc" id="L235">            return;</span>
+        }
+<span class="nc" id="L237">        AdminNotification saved = null;</span>
+        try {
+<span class="nc" id="L239">            saved = adminNotificationService.createNotification(</span>
+                    &quot;HUMAN_REVIEW_ALERT&quot;,
+<span class="nc" id="L241">                    session.getId(),</span>
+<span class="nc" id="L242">                    session.getUserId(),</span>
+                    &quot;Intervention requise — révision humaine (session unlock-chat).&quot;,
+<span class="nc bnc" id="L244" title="All 2 branches missed.">                    session.getAiDecision() != null ? session.getAiDecision().name() : null,</span>
+<span class="nc" id="L245">                    session.getAiConfidence());</span>
+<span class="nc" id="L246">        } catch (Exception e) {</span>
+<span class="nc" id="L247">            log.warn(&quot;Admin notification DB failed for session {}: {}&quot;, session.getId(), e.getMessage());</span>
+<span class="nc" id="L248">        }</span>
+        try {
+<span class="nc" id="L250">            Map&lt;String, Object&gt; payload = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L251">            payload.put(&quot;type&quot;, &quot;HUMAN_REVIEW_ALERT&quot;);</span>
+<span class="nc bnc" id="L252" title="All 2 branches missed.">            if (saved != null) {</span>
+<span class="nc" id="L253">                payload.put(&quot;notificationId&quot;, saved.getId());</span>
+<span class="nc" id="L254">                payload.put(&quot;actionToken&quot;, saved.getActionToken());</span>
+            }
+<span class="nc" id="L256">            payload.put(&quot;sessionId&quot;, session.getId());</span>
+<span class="nc" id="L257">            payload.put(&quot;userId&quot;, parseUserIdJson(session.getUserId()));</span>
+<span class="nc" id="L258">            payload.put(</span>
+                    &quot;aiDecision&quot;,
+<span class="nc bnc" id="L260" title="All 2 branches missed.">                    session.getAiDecision() != null ? session.getAiDecision().name() : &quot;UNCERTAIN&quot;);</span>
+<span class="nc bnc" id="L261" title="All 2 branches missed.">            payload.put(&quot;aiConfidence&quot;, session.getAiConfidence() != null ? session.getAiConfidence() : 0);</span>
+<span class="nc bnc" id="L262" title="All 2 branches missed.">            payload.put(&quot;aiReasoning&quot;, session.getAiReasoning() != null ? session.getAiReasoning() : &quot;&quot;);</span>
+<span class="nc" id="L263">            payload.put(</span>
+                    &quot;timestamp&quot;,
+<span class="nc" id="L265">                    Instant.now().atOffset(ZoneOffset.UTC).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));</span>
+<span class="nc" id="L266">            sseStreamService.sendToAdmins(&quot;HUMAN_REVIEW_ALERT&quot;, payload);</span>
+            // Même événement sur le flux unlock-chat (/admin/stream) : la cloche utilise un autre SSE souvent non connecté.
+<span class="nc" id="L268">            sseStreamService.pushToAdmin(&quot;HUMAN_REVIEW_ALERT&quot;, payload);</span>
+<span class="nc" id="L269">        } catch (Exception e) {</span>
+<span class="nc" id="L270">            log.warn(&quot;Admin notification SSE failed for session {}: {}&quot;, session.getId(), e.getMessage());</span>
+<span class="nc" id="L271">        }</span>
+<span class="nc bnc" id="L272" title="All 4 branches missed.">        if (humanReviewEmailEnabled</span>
+                &amp;&amp; livenessAdminEmail != null
+<span class="nc bnc" id="L274" title="All 2 branches missed.">                &amp;&amp; !livenessAdminEmail.isBlank()) {</span>
+            try {
+<span class="nc" id="L276">                emailService.sendHumanReviewAlertEmail(</span>
+                        livenessAdminEmail,
+                        session,
+                        messageCount,
+<span class="nc" id="L280">                        livenessAdminAuthHelper.getCurrentCode());</span>
+<span class="nc" id="L281">            } catch (Exception e) {</span>
+<span class="nc" id="L282">                log.warn(&quot;Human review alert email failed for session {}: {}&quot;, session.getId(), e.getMessage());</span>
+<span class="nc" id="L283">            }</span>
+        }
+<span class="nc" id="L285">    }</span>
+
+    private static Object parseUserIdJson(String userId) {
+<span class="nc bnc" id="L288" title="All 2 branches missed.">        if (userId == null) {</span>
+<span class="nc" id="L289">            return null;</span>
+        }
+        try {
+<span class="nc" id="L292">            return Long.parseLong(userId.trim());</span>
+<span class="nc" id="L293">        } catch (NumberFormatException e) {</span>
+<span class="nc" id="L294">            return userId;</span>
+        }
+    }
+
+    /** Persist a row so the admin UI shows why analysis did not complete normally. */
+    private void persistAnalysisFailure(UnlockChatSession session, AiDecision decision, String reasoning) {
+<span class="nc" id="L300">        session.setAiDecision(decision);</span>
+<span class="nc" id="L301">        session.setAiConfidence(null);</span>
+<span class="nc" id="L302">        session.setAiReasoning(reasoning);</span>
+<span class="nc" id="L303">        session.setAiRecommendUnblock(false);</span>
+<span class="nc" id="L304">        session.setAiAnalyzedAt(LocalDateTime.now());</span>
+<span class="nc" id="L305">        sessionRepository.save(session);</span>
+<span class="nc" id="L306">        sseStreamService.pushToAdmin(</span>
+<span class="nc" id="L307">                &quot;session-updated&quot;, Map.of(&quot;sessionId&quot;, session.getId(), &quot;aiAnalyzed&quot;, true, &quot;aiFailed&quot;, true));</span>
+<span class="nc" id="L308">    }</span>
+
+    private static UnlockChatMessage appendSystemMessage(UnlockChatSession session, String content) {
+<span class="nc" id="L311">        LocalDateTime now = LocalDateTime.now();</span>
+<span class="nc" id="L312">        UnlockChatMessage m = UnlockChatMessage.builder()</span>
+<span class="nc" id="L313">                .session(session)</span>
+<span class="nc" id="L314">                .sender(MessageSender.SYSTEM)</span>
+<span class="nc" id="L315">                .content(content)</span>
+<span class="nc" id="L316">                .sentAt(now)</span>
+<span class="nc" id="L317">                .build();</span>
+<span class="nc" id="L318">        session.getMessages().add(m);</span>
+<span class="nc" id="L319">        return m;</span>
+    }
+
+    private UnlockChatMessageDTO toDto(UnlockChatMessage m, Long sessionId) {
+<span class="nc" id="L323">        return UnlockChatMessageDTO.builder()</span>
+<span class="nc" id="L324">                .id(m.getId())</span>
+<span class="nc" id="L325">                .sessionId(sessionId)</span>
+<span class="nc" id="L326">                .sender(m.getSender())</span>
+<span class="nc" id="L327">                .content(m.getContent())</span>
+<span class="nc" id="L328">                .sentAt(m.getSentAt())</span>
+<span class="nc" id="L329">                .build();</span>
+    }
+
+    private static String label(MessageSender s) {
+<span class="nc bnc" id="L333" title="All 2 branches missed.">        if (s == MessageSender.ADMIN) {</span>
+<span class="nc" id="L334">            return &quot;ADMIN&quot;;</span>
+        }
+<span class="nc bnc" id="L336" title="All 2 branches missed.">        if (s == MessageSender.SYSTEM) {</span>
+<span class="nc" id="L337">            return &quot;SYSTEM&quot;;</span>
+        }
+<span class="nc" id="L339">        return &quot;USER&quot;;</span>
+    }
+
+    private JsonNode parseAiJson(String raw) throws Exception {
+<span class="nc" id="L343">        String t = raw.trim();</span>
+<span class="nc bnc" id="L344" title="All 2 branches missed.">        if (t.startsWith(&quot;```&quot;)) {</span>
+<span class="nc" id="L345">            int start = t.indexOf('{');</span>
+<span class="nc" id="L346">            int end = t.lastIndexOf('}');</span>
+<span class="nc bnc" id="L347" title="All 4 branches missed.">            if (start &gt;= 0 &amp;&amp; end &gt; start) {</span>
+<span class="nc" id="L348">                t = t.substring(start, end + 1);</span>
+            }
+        }
+<span class="nc" id="L351">        return objectMapper.readTree(t);</span>
+    }
+
+    private static AiDecision parseDecision(String s) {
+<span class="nc bnc" id="L355" title="All 2 branches missed.">        if (s == null) {</span>
+<span class="nc" id="L356">            return AiDecision.UNCERTAIN;</span>
+        }
+<span class="nc" id="L358">        String u = s.trim().toUpperCase(Locale.ROOT);</span>
+<span class="nc bnc" id="L359" title="All 3 branches missed.">        return switch (u) {</span>
+<span class="nc" id="L360">            case &quot;HUMAN&quot; -&gt; AiDecision.HUMAN;</span>
+<span class="nc" id="L361">            case &quot;BOT&quot; -&gt; AiDecision.BOT;</span>
+<span class="nc" id="L362">            default -&gt; AiDecision.UNCERTAIN;</span>
+        };
+    }
+
+    private static int clamp(int v, int min, int max) {
+<span class="nc bnc" id="L367" title="All 2 branches missed.">        if (v &lt; min) {</span>
+<span class="nc" id="L368">            return min;</span>
+        }
+<span class="nc" id="L370">        return Math.min(v, max);</span>
+    }
+
+    /**
+     * Groq may return confidence as int, double, or string; {@link JsonNode#asInt} on a text node yields 0.
+     */
+    private static int parseConfidence(JsonNode root) {
+<span class="nc" id="L377">        JsonNode c = root.path(&quot;confidence&quot;);</span>
+<span class="nc bnc" id="L378" title="All 4 branches missed.">        if (c.isMissingNode() || c.isNull()) {</span>
+<span class="nc" id="L379">            return -1;</span>
+        }
+        try {
+<span class="nc bnc" id="L382" title="All 2 branches missed.">            if (c.isNumber()) {</span>
+<span class="nc" id="L383">                double d = c.asDouble();</span>
+<span class="nc bnc" id="L384" title="All 4 branches missed.">                if (Double.isNaN(d) || Double.isInfinite(d)) {</span>
+<span class="nc" id="L385">                    return -1;</span>
+                }
+<span class="nc" id="L387">                return clamp((int) Math.round(d), 0, 100);</span>
+            }
+<span class="nc bnc" id="L389" title="All 2 branches missed.">            if (c.isTextual()) {</span>
+<span class="nc" id="L390">                String t = c.asText().trim();</span>
+<span class="nc bnc" id="L391" title="All 2 branches missed.">                if (t.isEmpty()) {</span>
+<span class="nc" id="L392">                    return -1;</span>
+                }
+<span class="nc" id="L394">                double d = Double.parseDouble(t.replace(',', '.'));</span>
+<span class="nc" id="L395">                return clamp((int) Math.round(d), 0, 100);</span>
+            }
+<span class="nc" id="L397">        } catch (Exception ignored) {</span>
+<span class="nc" id="L398">            return -1;</span>
+<span class="nc" id="L399">        }</span>
+<span class="nc" id="L400">        return -1;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

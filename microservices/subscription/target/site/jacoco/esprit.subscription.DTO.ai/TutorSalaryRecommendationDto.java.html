@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TutorSalaryRecommendationDto.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.DTO.ai</a> &gt; <span class="el_source">TutorSalaryRecommendationDto.java</span></div><h1>TutorSalaryRecommendationDto.java</h1><pre class="source lang-java linenums">package esprit.subscription.DTO.ai;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+<span class="nc bnc" id="L11" title="All 120 branches missed.">@Data</span>
+<span class="pc" id="L12">@Builder</span>
+<span class="nc" id="L13">@NoArgsConstructor</span>
+<span class="fc" id="L14">@AllArgsConstructor</span>
+public class TutorSalaryRecommendationDto {
+<span class="fc" id="L16">    private Long userId;</span>
+<span class="fc" id="L17">    private String role;</span>
+<span class="fc" id="L18">    private Double rating;</span>
+
+<span class="fc" id="L20">    private Double targetMonthlyRevenue;</span>
+<span class="fc" id="L21">    private Double observedMonthlyRevenue;</span>
+
+<span class="fc" id="L23">    private int monthsActive;</span>
+<span class="fc" id="L24">    private int successfulPayments;</span>
+<span class="fc" id="L25">    private int failedPayments;</span>
+
+<span class="fc" id="L27">    private double performanceScore;</span>
+<span class="fc" id="L28">    private double reliabilityScore;</span>
+<span class="fc" id="L29">    private double workloadScore;</span>
+<span class="fc" id="L30">    private double overallScore;</span>
+
+<span class="fc" id="L32">    private double recommendedMonthlySalary;</span>
+<span class="fc" id="L33">    private double minMonthlySalary;</span>
+<span class="fc" id="L34">    private double maxMonthlySalary;</span>
+<span class="fc" id="L35">    private String currency;</span>
+
+<span class="fc" id="L37">    private int confidence;</span>
+<span class="fc" id="L38">    private List&lt;String&gt; topFactors;</span>
+
+<span class="fc" id="L40">    private boolean aiPowered;</span>
+<span class="fc" id="L41">    private String summary;</span>
+<span class="fc" id="L42">    private List&lt;String&gt; negotiationTips;</span>
+
+<span class="fc" id="L44">    private LocalDateTime generatedAt;</span>
+<span class="fc" id="L45">    private String modelSource;</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

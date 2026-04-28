@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Subscription.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.entity</a> &gt; <span class="el_source">Subscription.java</span></div><h1>Subscription.java</h1><pre class="source lang-java linenums">package esprit.subscription.entity;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = &quot;subscriptions&quot;)
+<span class="nc" id="L16">@AllArgsConstructor</span>
+<span class="fc" id="L17">@NoArgsConstructor</span>
+@Getter
+<span class="pc" id="L19">@Setter</span>
+@JsonIgnoreProperties({&quot;pricingPlan&quot;})
+public class Subscription {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+<span class="fc" id="L25">    private Long id;</span>
+
+    @Column(nullable = false)
+<span class="fc" id="L28">    private Long userId;</span>
+
+<span class="fc" id="L30">    private String userRole; // STUDENT/TRAINER/ENTERPRISE</span>
+
+    @Column(nullable = false)
+<span class="fc" id="L33">    private String billingCycle; // MONTHLY/YEARLY</span>
+
+    /** ACTIVE / PAUSED / CANCELLED / EXPIRED */
+    @Column(nullable = false)
+<span class="fc" id="L37">    private String status;</span>
+
+    @Column(nullable = false)
+<span class="fc" id="L40">    private LocalDateTime startDate;</span>
+
+<span class="fc" id="L42">    private LocalDateTime endDate;</span>
+
+    /** When set, Stripe Billing subscription id — used for pause/resume via Stripe API (optional for legacy checkout). */
+    @Column(length = 64)
+<span class="fc" id="L46">    private String stripeSubscriptionId;</span>
+
+    /** While status is PAUSED: access suspended; scheduler sets ACTIVE when this moment passes. */
+<span class="fc" id="L49">    private LocalDateTime pauseEndAt;</span>
+
+    /** When the pause was started (audit). */
+<span class="fc" id="L52">    private LocalDateTime pausedAt;</span>
+
+    @Column(nullable = false, updatable = false)
+<span class="fc" id="L55">    private LocalDateTime createdAt;</span>
+
+<span class="pc" id="L57">    private boolean autoRenew = false;</span>
+
+    /** Fin de période de grâce après échec de paiement (nullable). */
+<span class="nc" id="L60">    private LocalDateTime gracePeriodEnd;</span>
+
+    @JsonIgnore
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = &quot;plan_id&quot;, nullable = false)
+<span class="fc" id="L65">    private PricingPlan pricingPlan;</span>
+
+    /** Expose plan id directly so the Angular frontend can use sub.planId */
+    @JsonProperty(&quot;planId&quot;)
+    public Long getPlanId() {
+<span class="nc bnc" id="L70" title="All 2 branches missed.">        return pricingPlan != null ? pricingPlan.getId() : null;</span>
+    }
+
+    /** Expose plan name directly for convenience */
+    @JsonProperty(&quot;planName&quot;)
+    public String getPlanDisplayName() {
+<span class="nc bnc" id="L76" title="All 2 branches missed.">        return pricingPlan != null ? pricingPlan.getName() : null;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

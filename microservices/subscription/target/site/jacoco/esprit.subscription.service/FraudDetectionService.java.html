@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>FraudDetectionService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.service</a> &gt; <span class="el_source">FraudDetectionService.java</span></div><h1>FraudDetectionService.java</h1><pre class="source lang-java linenums">package esprit.subscription.service;
+
+import esprit.subscription.entity.FraudAlert;
+import esprit.subscription.entity.Subscription;
+import esprit.subscription.repository.FraudAlertRepository;
+import esprit.subscription.repository.SubscriptionRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Service
+public class FraudDetectionService {
+
+<span class="fc" id="L18">    private static final Logger log = LoggerFactory.getLogger(FraudDetectionService.class);</span>
+
+    private final FraudAlertRepository fraudAlertRepository;
+    private final SubscriptionRepository subscriptionRepository;
+
+    public FraudDetectionService(FraudAlertRepository fraudAlertRepository,
+<span class="fc" id="L24">                                  SubscriptionRepository subscriptionRepository) {</span>
+<span class="fc" id="L25">        this.fraudAlertRepository = fraudAlertRepository;</span>
+<span class="fc" id="L26">        this.subscriptionRepository = subscriptionRepository;</span>
+<span class="fc" id="L27">    }</span>
+
+    /**
+     * Analyse a subscription event for potential fraud and create alerts if needed.
+     * Call this right after a new subscription is persisted.
+     */
+    @Transactional
+    public void analyseSubscription(Subscription subscription) {
+<span class="fc" id="L35">        List&lt;Subscription&gt; history = subscriptionRepository.findByUserId(subscription.getUserId());</span>
+
+        // Rule 1 — Rapid plan changes (more than 3 subscriptions in 30 days)
+<span class="fc" id="L38">        long recentCount = history.stream()</span>
+<span class="fc bfc" id="L39" title="All 2 branches covered.">                .filter(s -&gt; s.getCreatedAt() != null</span>
+<span class="pc bpc" id="L40" title="1 of 2 branches missed.">                        &amp;&amp; s.getCreatedAt().isAfter(LocalDateTime.now().minusDays(30)))</span>
+<span class="fc" id="L41">                .count();</span>
+
+<span class="fc bfc" id="L43" title="All 2 branches covered.">        if (recentCount &gt; 3) {</span>
+<span class="fc" id="L44">            createAlert(subscription, &quot;RAPID_CHANGE&quot;,</span>
+                    &quot;HIGH&quot;,
+                    &quot;User created &quot; + recentCount + &quot; subscriptions in the last 30 days.&quot;);
+        }
+
+        // Rule 2 — Multiple CANCELLED subscriptions in the past week (trial abuse)
+<span class="fc" id="L50">        long cancelledRecent = history.stream()</span>
+<span class="fc bfc" id="L51" title="All 2 branches covered.">                .filter(s -&gt; &quot;CANCELLED&quot;.equals(s.getStatus())</span>
+<span class="pc bpc" id="L52" title="1 of 2 branches missed.">                        &amp;&amp; s.getEndDate() != null</span>
+<span class="pc bpc" id="L53" title="1 of 2 branches missed.">                        &amp;&amp; s.getEndDate().isAfter(LocalDateTime.now().minusDays(7)))</span>
+<span class="fc" id="L54">                .count();</span>
+
+<span class="fc bfc" id="L56" title="All 2 branches covered.">        if (cancelledRecent &gt;= 2) {</span>
+<span class="fc" id="L57">            createAlert(subscription, &quot;TRIAL_ABUSE&quot;,</span>
+                    &quot;MEDIUM&quot;,
+                    &quot;User cancelled &quot; + cancelledRecent + &quot; subscriptions in the last 7 days.&quot;);
+        }
+<span class="fc" id="L61">    }</span>
+
+    private void createAlert(Subscription subscription, String alertType, String riskLevel, String details) {
+<span class="fc" id="L64">        FraudAlert alert = new FraudAlert();</span>
+<span class="fc" id="L65">        alert.setUserId(subscription.getUserId());</span>
+<span class="fc" id="L66">        alert.setAlertType(alertType);</span>
+<span class="fc" id="L67">        alert.setRiskLevel(riskLevel);</span>
+<span class="fc" id="L68">        alert.setDetails(details);</span>
+<span class="fc" id="L69">        alert.setResolved(false);</span>
+
+        // Populate the four snapshot fields
+<span class="fc" id="L72">        alert.setUserRole(subscription.getUserRole());</span>
+<span class="fc bfc" id="L73" title="All 2 branches covered.">        alert.setPlanName(subscription.getPricingPlan() != null</span>
+<span class="fc" id="L74">                ? subscription.getPricingPlan().getName() : null);</span>
+<span class="fc" id="L75">        alert.setBillingCycle(subscription.getBillingCycle());</span>
+<span class="fc" id="L76">        alert.setSubscriptionStatus(subscription.getStatus());</span>
+
+<span class="fc" id="L78">        fraudAlertRepository.save(alert);</span>
+<span class="fc" id="L79">        log.warn(&quot;FraudAlert created — userId={} type={} risk={}&quot;, alert.getUserId(), alertType, riskLevel);</span>
+<span class="fc" id="L80">    }</span>
+
+    public List&lt;FraudAlert&gt; findAll() {
+<span class="nc" id="L83">        return fraudAlertRepository.findAll();</span>
+    }
+
+    public List&lt;FraudAlert&gt; findByRiskLevel(String riskLevel) {
+<span class="nc" id="L87">        return fraudAlertRepository.findByRiskLevel(riskLevel);</span>
+    }
+
+    @Transactional
+    public FraudAlert resolve(Long alertId) {
+<span class="nc" id="L92">        return fraudAlertRepository.findById(alertId).map(alert -&gt; {</span>
+<span class="nc" id="L93">            alert.setResolved(true);</span>
+<span class="nc" id="L94">            return fraudAlertRepository.save(alert);</span>
+<span class="nc" id="L95">        }).orElseThrow(() -&gt; new RuntimeException(&quot;FraudAlert not found: &quot; + alertId));</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

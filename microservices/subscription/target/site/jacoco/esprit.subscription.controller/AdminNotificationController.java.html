@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AdminNotificationController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.controller</a> &gt; <span class="el_source">AdminNotificationController.java</span></div><h1>AdminNotificationController.java</h1><pre class="source lang-java linenums">package esprit.subscription.controller;
+
+import esprit.subscription.DTO.admin.AdminNotificationResponse;
+import esprit.subscription.config.LivenessAdminAuthHelper;
+import esprit.subscription.service.AdminNotificationService;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Map;
+
+@RestController
+@RequestMapping({&quot;/api/admin/notifications&quot;, &quot;/sub/admin/notifications&quot;})
+public class AdminNotificationController {
+
+    private final AdminNotificationService adminNotificationService;
+    private final LivenessAdminAuthHelper adminAuthHelper;
+
+    public AdminNotificationController(
+            AdminNotificationService adminNotificationService,
+<span class="fc" id="L22">            LivenessAdminAuthHelper adminAuthHelper) {</span>
+<span class="fc" id="L23">        this.adminNotificationService = adminNotificationService;</span>
+<span class="fc" id="L24">        this.adminAuthHelper = adminAuthHelper;</span>
+<span class="fc" id="L25">    }</span>
+
+    @GetMapping
+    public ResponseEntity&lt;List&lt;AdminNotificationResponse&gt;&gt; listUnread(HttpServletRequest request) {
+<span class="nc" id="L29">        adminAuthHelper.requireAdminSecret(request);</span>
+<span class="nc" id="L30">        return ResponseEntity.ok(adminNotificationService.getUnreadNotifications());</span>
+    }
+
+    @GetMapping(&quot;/count&quot;)
+    public ResponseEntity&lt;Map&lt;String, Long&gt;&gt; countUnread(HttpServletRequest request) {
+<span class="nc" id="L35">        adminAuthHelper.requireAdminSecret(request);</span>
+<span class="nc" id="L36">        return ResponseEntity.ok(Map.of(&quot;count&quot;, adminNotificationService.getUnreadCount()));</span>
+    }
+
+    /** Résout le jeton (query {@code token}) — identifie l’alerte et l’utilisateur cible pour le chat admin. */
+    @GetMapping(&quot;/resolve&quot;)
+    public ResponseEntity&lt;AdminNotificationResponse&gt; resolveByToken(
+            @RequestParam(&quot;token&quot;) String token, HttpServletRequest request) {
+<span class="nc" id="L43">        adminAuthHelper.requireAdminSecret(request);</span>
+<span class="nc" id="L44">        return ResponseEntity.ok(adminNotificationService.findByActionToken(token));</span>
+    }
+
+    @PutMapping(&quot;/{id}/read&quot;)
+    public ResponseEntity&lt;Void&gt; markRead(@PathVariable Long id, HttpServletRequest request) {
+<span class="nc" id="L49">        adminAuthHelper.requireAdminSecret(request);</span>
+<span class="nc" id="L50">        adminNotificationService.markAsRead(id);</span>
+<span class="nc" id="L51">        return ResponseEntity.noContent().build();</span>
+    }
+
+    @PutMapping(&quot;/read-all&quot;)
+    public ResponseEntity&lt;Void&gt; markAllRead(HttpServletRequest request) {
+<span class="nc" id="L56">        adminAuthHelper.requireAdminSecret(request);</span>
+<span class="nc" id="L57">        adminNotificationService.markAllAsRead();</span>
+<span class="nc" id="L58">        return ResponseEntity.noContent().build();</span>
+    }
+
+    /**
+     * Insère une notification de test (non bloquage) — vérifie secret + MySQL + liste cloche.
+     * {@code POST /api/admin/notifications/debug/ui-test} avec header {@code X-Liveness-Admin-Secret}.
+     */
+    @PostMapping(&quot;/debug/ui-test&quot;)
+    public ResponseEntity&lt;AdminNotificationResponse&gt; uiTest(HttpServletRequest request) {
+<span class="nc" id="L67">        adminAuthHelper.requireAdminSecret(request);</span>
+<span class="nc" id="L68">        return ResponseEntity.ok(adminNotificationService.createUiTestNotification());</span>
+    }
+
+    /** Regenerate {@code actionToken} for deep links (invalidates previous token). */
+    @PostMapping(&quot;/{id}/refresh-token&quot;)
+    public ResponseEntity&lt;AdminNotificationResponse&gt; refreshToken(
+            @PathVariable Long id, HttpServletRequest request) {
+<span class="nc" id="L75">        adminAuthHelper.requireAdminSecret(request);</span>
+<span class="nc" id="L76">        return ResponseEntity.ok(adminNotificationService.refreshActionToken(id));</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DefaultPricingPlansBootstrap.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.config</a> &gt; <span class="el_source">DefaultPricingPlansBootstrap.java</span></div><h1>DefaultPricingPlansBootstrap.java</h1><pre class="source lang-java linenums">package esprit.subscription.config;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.ApplicationArguments;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Component;
+
+/**
+ * Ensures at least pricing plan {@code id = 1} exists so Stripe success URLs using {@code planId=1} work.
+ * Runs after JPA schema init (high order).
+ */
+@Component
+@Order(100)
+public class DefaultPricingPlansBootstrap implements ApplicationRunner {
+
+<span class="fc" id="L19">    private static final Logger log = LoggerFactory.getLogger(DefaultPricingPlansBootstrap.class);</span>
+
+    private final JdbcTemplate jdbcTemplate;
+
+<span class="fc" id="L23">    public DefaultPricingPlansBootstrap(JdbcTemplate jdbcTemplate) {</span>
+<span class="fc" id="L24">        this.jdbcTemplate = jdbcTemplate;</span>
+<span class="fc" id="L25">    }</span>
+
+    @Override
+    public void run(ApplicationArguments args) {
+        try {
+<span class="fc" id="L30">            Integer tables = jdbcTemplate.queryForObject(</span>
+                    &quot;&quot;&quot;
+                            SELECT COUNT(*) FROM information_schema.tables
+                            WHERE table_schema = DATABASE() AND table_name = 'pricing_plans'
+                            &quot;&quot;&quot;,
+                    Integer.class);
+<span class="pc bpc" id="L36" title="2 of 4 branches missed.">            if (tables == null || tables == 0) {</span>
+<span class="nc" id="L37">                log.debug(&quot;pricing_plans table missing — Hibernate may create it on next use.&quot;);</span>
+<span class="nc" id="L38">                return;</span>
+            }
+
+<span class="fc" id="L41">            jdbcTemplate.update(</span>
+                    &quot;&quot;&quot;
+                            INSERT INTO pricing_plans (id, name, description, monthly_price, yearly_price, features, is_active, highlight)
+                            VALUES (1, 'ENTERPRISE', 'Default enterprise subscription', 29.99, 299.99, '', 1, 0)
+                            ON DUPLICATE KEY UPDATE id = id
+                            &quot;&quot;&quot;);
+
+<span class="fc" id="L48">            log.info(&quot;Ensured pricing_plans id=1 (ENTERPRISE) exists for payment confirm.&quot;);</span>
+<span class="nc" id="L49">        } catch (Exception e) {</span>
+<span class="nc" id="L50">            log.warn(&quot;Could not seed default pricing plan id=1: {}&quot;, e.getMessage());</span>
+<span class="fc" id="L51">        }</span>
+<span class="fc" id="L52">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

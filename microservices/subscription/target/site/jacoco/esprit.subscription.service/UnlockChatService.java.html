@@ -1,0 +1,351 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>UnlockChatService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.service</a> &gt; <span class="el_source">UnlockChatService.java</span></div><h1>UnlockChatService.java</h1><pre class="source lang-java linenums">package esprit.subscription.service;
+
+import esprit.subscription.DTO.unlockchat.UnlockChatMessageDTO;
+import esprit.subscription.DTO.unlockchat.UnlockChatSessionDTO;
+import esprit.subscription.DTO.unlockchat.UnlockChatSessionSummaryDTO;
+import esprit.subscription.entity.BlockStatus;
+import esprit.subscription.entity.ChatSessionStatus;
+import esprit.subscription.entity.MessageSender;
+import esprit.subscription.entity.UnlockChatMessage;
+import esprit.subscription.entity.UnlockChatSession;
+import esprit.subscription.entity.UserBlock;
+import esprit.subscription.repository.UnlockChatMessageRepository;
+import esprit.subscription.repository.UnlockChatSessionRepository;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
+@Service
+public class UnlockChatService {
+
+    private static String normalizeUserId(String userId) {
+<span class="nc bnc" id="L31" title="All 2 branches missed.">        return userId == null ? &quot;&quot; : userId.trim();</span>
+    }
+
+    private final UnlockChatSessionRepository sessionRepository;
+    private final UnlockChatMessageRepository messageRepository;
+    private final UserBlockService userBlockService;
+    private final SseStreamService sseStreamService;
+    private final UnlockChatAiAnalysisService unlockChatAiAnalysisService;
+
+    public UnlockChatService(
+            UnlockChatSessionRepository sessionRepository,
+            UnlockChatMessageRepository messageRepository,
+            UserBlockService userBlockService,
+            SseStreamService sseStreamService,
+<span class="fc" id="L45">            UnlockChatAiAnalysisService unlockChatAiAnalysisService) {</span>
+<span class="fc" id="L46">        this.sessionRepository = sessionRepository;</span>
+<span class="fc" id="L47">        this.messageRepository = messageRepository;</span>
+<span class="fc" id="L48">        this.userBlockService = userBlockService;</span>
+<span class="fc" id="L49">        this.sseStreamService = sseStreamService;</span>
+<span class="fc" id="L50">        this.unlockChatAiAnalysisService = unlockChatAiAnalysisService;</span>
+<span class="fc" id="L51">    }</span>
+
+    @Transactional
+    public UnlockChatSession openSession(String userId, Long blockId, String firstMessage) {
+<span class="nc" id="L55">        userId = normalizeUserId(userId);</span>
+<span class="nc bnc" id="L56" title="All 2 branches missed.">        if (userId.isEmpty()) {</span>
+<span class="nc" id="L57">            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, &quot;userId required&quot;);</span>
+        }
+<span class="nc" id="L59">        Optional&lt;UnlockChatSession&gt; alreadyOpen = sessionRepository.findByUserIdAndStatus(userId, ChatSessionStatus.OPEN);</span>
+<span class="nc bnc" id="L60" title="All 2 branches missed.">        if (alreadyOpen.isPresent()) {</span>
+<span class="nc" id="L61">            return sessionRepository.findByIdWithMessages(alreadyOpen.get().getId())</span>
+<span class="nc" id="L62">                    .orElse(alreadyOpen.get());</span>
+        }
+<span class="nc" id="L64">        Optional&lt;UnlockChatSession&gt; inHumanReview = sessionRepository.findByUserIdAndStatus(</span>
+                userId, ChatSessionStatus.NEEDS_HUMAN_REVIEW);
+<span class="nc bnc" id="L66" title="All 2 branches missed.">        if (inHumanReview.isPresent()) {</span>
+<span class="nc" id="L67">            return sessionRepository.findByIdWithMessages(inHumanReview.get().getId())</span>
+<span class="nc" id="L68">                    .orElse(inHumanReview.get());</span>
+        }
+<span class="nc bnc" id="L70" title="All 4 branches missed.">        if (firstMessage == null || firstMessage.isBlank()) {</span>
+<span class="nc" id="L71">            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, &quot;message required&quot;);</span>
+        }
+<span class="nc" id="L73">        UserBlock block = userBlockService.getByIdOrThrow(blockId);</span>
+<span class="nc bnc" id="L74" title="All 2 branches missed.">        if (!block.getUserId().equals(userId)) {</span>
+<span class="nc" id="L75">            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, &quot;blockId ne correspond pas à l'utilisateur&quot;);</span>
+        }
+<span class="nc bnc" id="L77" title="All 2 branches missed.">        if (block.getStatus() == BlockStatus.UNLOCKED) {</span>
+<span class="nc" id="L78">            throw new ResponseStatusException(HttpStatus.CONFLICT, &quot;Compte déjà débloqué&quot;);</span>
+        }
+
+<span class="nc" id="L81">        LocalDateTime now = LocalDateTime.now();</span>
+<span class="nc" id="L82">        UnlockChatSession session = UnlockChatSession.builder()</span>
+<span class="nc" id="L83">                .userId(userId)</span>
+<span class="nc" id="L84">                .blockId(blockId)</span>
+<span class="nc" id="L85">                .status(ChatSessionStatus.OPEN)</span>
+<span class="nc" id="L86">                .createdAt(now)</span>
+<span class="nc" id="L87">                .build();</span>
+
+<span class="nc" id="L89">        UnlockChatMessage first = UnlockChatMessage.builder()</span>
+<span class="nc" id="L90">                .session(session)</span>
+<span class="nc" id="L91">                .sender(MessageSender.USER)</span>
+<span class="nc" id="L92">                .content(firstMessage.trim())</span>
+<span class="nc" id="L93">                .sentAt(now)</span>
+<span class="nc" id="L94">                .build();</span>
+<span class="nc" id="L95">        session.getMessages().add(first);</span>
+
+<span class="nc" id="L97">        session = sessionRepository.save(session);</span>
+
+<span class="nc" id="L99">        sseStreamService.pushToAdmin(&quot;new-session&quot;, Map.of(</span>
+<span class="nc" id="L100">                &quot;sessionId&quot;, session.getId(),</span>
+                &quot;userId&quot;, userId,
+<span class="nc" id="L102">                &quot;preview&quot;, preview(firstMessage, 80)));</span>
+<span class="nc" id="L103">        unlockChatAiAnalysisService.scheduleAnalysis(session.getId());</span>
+<span class="nc" id="L104">        return session;</span>
+    }
+
+    @Transactional
+    public UnlockChatMessage userSendMessage(Long sessionId, String userId, String content) {
+<span class="nc" id="L109">        userId = normalizeUserId(userId);</span>
+<span class="nc bnc" id="L110" title="All 2 branches missed.">        if (userId.isEmpty()) {</span>
+<span class="nc" id="L111">            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, &quot;userId required&quot;);</span>
+        }
+<span class="nc bnc" id="L113" title="All 4 branches missed.">        if (content == null || content.isBlank()) {</span>
+<span class="nc" id="L114">            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, &quot;content required&quot;);</span>
+        }
+<span class="nc" id="L116">        UnlockChatSession session = sessionRepository.findById(sessionId)</span>
+<span class="nc" id="L117">                .orElseThrow(() -&gt; new ResponseStatusException(HttpStatus.NOT_FOUND, &quot;Session introuvable&quot;));</span>
+<span class="nc bnc" id="L118" title="All 2 branches missed.">        if (!session.getUserId().equals(userId)) {</span>
+<span class="nc" id="L119">            throw new ResponseStatusException(HttpStatus.FORBIDDEN, &quot;Session invalide&quot;);</span>
+        }
+<span class="nc bnc" id="L121" title="All 2 branches missed.">        if (!isSessionActiveForChat(session.getStatus())) {</span>
+<span class="nc" id="L122">            throw new ResponseStatusException(HttpStatus.CONFLICT, &quot;Session fermée&quot;);</span>
+        }
+
+<span class="nc" id="L125">        LocalDateTime now = LocalDateTime.now();</span>
+<span class="nc" id="L126">        UnlockChatMessage m = UnlockChatMessage.builder()</span>
+<span class="nc" id="L127">                .session(session)</span>
+<span class="nc" id="L128">                .sender(MessageSender.USER)</span>
+<span class="nc" id="L129">                .content(content.trim())</span>
+<span class="nc" id="L130">                .sentAt(now)</span>
+<span class="nc" id="L131">                .build();</span>
+<span class="nc" id="L132">        m = messageRepository.save(m);</span>
+<span class="nc" id="L133">        session.getMessages().add(m);</span>
+
+<span class="nc" id="L135">        sseStreamService.pushToAdmin(&quot;new-message&quot;, toMessageDto(m));</span>
+<span class="nc" id="L136">        unlockChatAiAnalysisService.scheduleAnalysis(session.getId());</span>
+<span class="nc" id="L137">        return m;</span>
+    }
+
+    @Transactional
+    public UnlockChatMessage adminSendMessage(Long sessionId, String adminUsername, String content) {
+<span class="nc bnc" id="L142" title="All 4 branches missed.">        if (content == null || content.isBlank()) {</span>
+<span class="nc" id="L143">            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, &quot;content required&quot;);</span>
+        }
+<span class="nc" id="L145">        UnlockChatSession session = sessionRepository.findById(sessionId)</span>
+<span class="nc" id="L146">                .orElseThrow(() -&gt; new ResponseStatusException(HttpStatus.NOT_FOUND, &quot;Session introuvable&quot;));</span>
+<span class="nc bnc" id="L147" title="All 2 branches missed.">        if (!isSessionActiveForChat(session.getStatus())) {</span>
+<span class="nc" id="L148">            throw new ResponseStatusException(HttpStatus.CONFLICT, &quot;Session fermée&quot;);</span>
+        }
+
+<span class="nc" id="L151">        LocalDateTime now = LocalDateTime.now();</span>
+<span class="nc" id="L152">        UnlockChatMessage m = UnlockChatMessage.builder()</span>
+<span class="nc" id="L153">                .session(session)</span>
+<span class="nc" id="L154">                .sender(MessageSender.ADMIN)</span>
+<span class="nc" id="L155">                .content(content.trim())</span>
+<span class="nc" id="L156">                .sentAt(now)</span>
+<span class="nc" id="L157">                .build();</span>
+<span class="nc" id="L158">        m = messageRepository.save(m);</span>
+<span class="nc" id="L159">        session.getMessages().add(m);</span>
+
+<span class="nc" id="L161">        sseStreamService.pushToUser(session.getUserId(), &quot;new-message&quot;, toMessageDto(m));</span>
+        // Re-run Groq with full transcript (user + admin); previously only userSendMessage triggered analysis.
+<span class="nc" id="L163">        unlockChatAiAnalysisService.scheduleAnalysis(session.getId());</span>
+<span class="nc" id="L164">        return m;</span>
+    }
+
+    @Transactional
+    public void grantAccess(Long sessionId, String adminUsername) {
+<span class="nc" id="L169">        UnlockChatSession session = sessionRepository.findById(sessionId)</span>
+<span class="nc" id="L170">                .orElseThrow(() -&gt; new ResponseStatusException(HttpStatus.NOT_FOUND, &quot;Session introuvable&quot;));</span>
+<span class="nc" id="L171">        ChatSessionStatus st = session.getStatus();</span>
+<span class="nc bnc" id="L172" title="All 2 branches missed.">        String admin = adminUsername != null ? adminUsername : &quot;admin&quot;;</span>
+
+        // Déjà traité : évite 409 quand l’admin clique après un auto-déblocage IA (AI_RESOLVED) ou un double clic.
+<span class="nc bnc" id="L175" title="All 4 branches missed.">        if (st == ChatSessionStatus.GRANTED || st == ChatSessionStatus.AI_RESOLVED) {</span>
+<span class="nc" id="L176">            userBlockService.approveUnlock(session.getBlockId(), admin);</span>
+<span class="nc" id="L177">            sseStreamService.pushToUser(session.getUserId(), &quot;unlock-decision&quot;, Map.of(&quot;decision&quot;, &quot;granted&quot;));</span>
+<span class="nc" id="L178">            return;</span>
+        }
+<span class="nc bnc" id="L180" title="All 2 branches missed.">        if (st == ChatSessionStatus.REJECTED) {</span>
+<span class="nc" id="L181">            throw new ResponseStatusException(</span>
+                    HttpStatus.CONFLICT,
+                    &quot;Session déjà refusée — impossible d’accorder l’accès depuis cette conversation.&quot;);
+        }
+<span class="nc bnc" id="L185" title="All 2 branches missed.">        if (!isSessionActiveForChat(st)) {</span>
+<span class="nc" id="L186">            throw new ResponseStatusException(HttpStatus.CONFLICT, &quot;Session fermée — statut: &quot; + st);</span>
+        }
+
+<span class="nc" id="L189">        session.setStatus(ChatSessionStatus.GRANTED);</span>
+<span class="nc" id="L190">        session.setClosedAt(LocalDateTime.now());</span>
+<span class="nc" id="L191">        session.setClosedBy(admin);</span>
+<span class="nc" id="L192">        sessionRepository.save(session);</span>
+<span class="nc" id="L193">        userBlockService.approveUnlock(session.getBlockId(), admin);</span>
+<span class="nc" id="L194">        sseStreamService.pushToUser(session.getUserId(), &quot;unlock-decision&quot;, Map.of(&quot;decision&quot;, &quot;granted&quot;));</span>
+<span class="nc" id="L195">    }</span>
+
+    @Transactional
+    public void rejectAccess(Long sessionId, String adminUsername, String reason) {
+<span class="nc" id="L199">        UnlockChatSession session = sessionRepository.findById(sessionId)</span>
+<span class="nc" id="L200">                .orElseThrow(() -&gt; new ResponseStatusException(HttpStatus.NOT_FOUND, &quot;Session introuvable&quot;));</span>
+<span class="nc bnc" id="L201" title="All 2 branches missed.">        if (!isSessionActiveForChat(session.getStatus())) {</span>
+<span class="nc" id="L202">            throw new ResponseStatusException(HttpStatus.CONFLICT, &quot;Session fermée&quot;);</span>
+        }
+<span class="nc bnc" id="L204" title="All 2 branches missed.">        String r = reason != null ? reason.strip() : &quot;&quot;;</span>
+<span class="nc bnc" id="L205" title="All 2 branches missed.">        String line = r.isEmpty() ? &quot;Demande refusée.&quot; : r;</span>
+
+<span class="nc" id="L207">        LocalDateTime now = LocalDateTime.now();</span>
+<span class="nc" id="L208">        UnlockChatMessage note = UnlockChatMessage.builder()</span>
+<span class="nc" id="L209">                .session(session)</span>
+<span class="nc" id="L210">                .sender(MessageSender.ADMIN)</span>
+<span class="nc" id="L211">                .content(line)</span>
+<span class="nc" id="L212">                .sentAt(now)</span>
+<span class="nc" id="L213">                .build();</span>
+<span class="nc" id="L214">        session.getMessages().add(note);</span>
+
+<span class="nc" id="L216">        session.setStatus(ChatSessionStatus.REJECTED);</span>
+<span class="nc" id="L217">        session.setClosedAt(now);</span>
+<span class="nc bnc" id="L218" title="All 2 branches missed.">        session.setClosedBy(adminUsername != null ? adminUsername : &quot;admin&quot;);</span>
+<span class="nc" id="L219">        sessionRepository.save(session);</span>
+
+<span class="nc" id="L221">        userBlockService.rejectUnlock(session.getBlockId(), adminUsername, r);</span>
+<span class="nc" id="L222">        sseStreamService.pushToUser(session.getUserId(), &quot;unlock-decision&quot;, Map.of(&quot;decision&quot;, &quot;rejected&quot;));</span>
+<span class="nc" id="L223">    }</span>
+
+    @Transactional(readOnly = true)
+    public UnlockChatSessionDTO getSession(Long sessionId) {
+<span class="nc" id="L227">        UnlockChatSession s = sessionRepository.findByIdWithMessages(sessionId)</span>
+<span class="nc" id="L228">                .orElseThrow(() -&gt; new ResponseStatusException(HttpStatus.NOT_FOUND, &quot;Session introuvable&quot;));</span>
+<span class="nc" id="L229">        return toSessionDto(s);</span>
+    }
+
+    /**
+     * Prefer an OPEN session; otherwise the latest GRANTED/REJECTED session so the client can resume UI after navigation.
+     */
+    @Transactional(readOnly = true)
+    public Optional&lt;UnlockChatSessionDTO&gt; getResumeStateForUser(String userId) {
+<span class="nc" id="L237">        userId = normalizeUserId(userId);</span>
+<span class="nc bnc" id="L238" title="All 2 branches missed.">        if (userId.isEmpty()) {</span>
+<span class="nc" id="L239">            return Optional.empty();</span>
+        }
+<span class="nc" id="L241">        Optional&lt;UnlockChatSession&gt; open = sessionRepository.findByUserIdAndStatus(userId, ChatSessionStatus.OPEN);</span>
+<span class="nc bnc" id="L242" title="All 2 branches missed.">        if (open.isPresent()) {</span>
+<span class="nc" id="L243">            return sessionRepository.findByIdWithMessages(open.get().getId()).map(this::toSessionDto);</span>
+        }
+<span class="nc" id="L245">        Optional&lt;UnlockChatSession&gt; inReview = sessionRepository.findByUserIdAndStatus(</span>
+                userId, ChatSessionStatus.NEEDS_HUMAN_REVIEW);
+<span class="nc bnc" id="L247" title="All 2 branches missed.">        if (inReview.isPresent()) {</span>
+<span class="nc" id="L248">            return sessionRepository.findByIdWithMessages(inReview.get().getId()).map(this::toSessionDto);</span>
+        }
+<span class="nc" id="L250">        List&lt;UnlockChatSession&gt; history = sessionRepository.findByUserIdOrderByCreatedAtDesc(userId);</span>
+<span class="nc bnc" id="L251" title="All 2 branches missed.">        if (history.isEmpty()) {</span>
+<span class="nc" id="L252">            return Optional.empty();</span>
+        }
+<span class="nc" id="L254">        UnlockChatSession latest = history.get(0);</span>
+<span class="nc" id="L255">        ChatSessionStatus st = latest.getStatus();</span>
+<span class="nc bnc" id="L256" title="All 6 branches missed.">        if (st == ChatSessionStatus.GRANTED || st == ChatSessionStatus.REJECTED || st == ChatSessionStatus.AI_RESOLVED) {</span>
+<span class="nc" id="L257">            return sessionRepository.findByIdWithMessages(latest.getId()).map(this::toSessionDto);</span>
+        }
+<span class="nc" id="L259">        return Optional.empty();</span>
+    }
+
+    /** OPEN session only — used when recovering chat from the “blocked” step without resuming old GRANTED/REJECTED rows. */
+    @Transactional(readOnly = true)
+    public Optional&lt;UnlockChatSessionDTO&gt; getOpenSessionForUser(String userId) {
+<span class="nc" id="L265">        userId = normalizeUserId(userId);</span>
+<span class="nc bnc" id="L266" title="All 2 branches missed.">        if (userId.isEmpty()) {</span>
+<span class="nc" id="L267">            return Optional.empty();</span>
+        }
+<span class="nc" id="L269">        Optional&lt;UnlockChatSession&gt; open = sessionRepository.findByUserIdAndStatus(userId, ChatSessionStatus.OPEN);</span>
+<span class="nc bnc" id="L270" title="All 2 branches missed.">        if (open.isPresent()) {</span>
+<span class="nc" id="L271">            return sessionRepository.findByIdWithMessages(open.get().getId()).map(this::toSessionDto);</span>
+        }
+<span class="nc" id="L273">        return sessionRepository</span>
+<span class="nc" id="L274">                .findByUserIdAndStatus(userId, ChatSessionStatus.NEEDS_HUMAN_REVIEW)</span>
+<span class="nc" id="L275">                .flatMap(s -&gt; sessionRepository.findByIdWithMessages(s.getId()).map(this::toSessionDto));</span>
+    }
+
+    @Transactional(readOnly = true)
+    public List&lt;UnlockChatSessionSummaryDTO&gt; getOpenSessions() {
+<span class="nc" id="L280">        return sessionRepository</span>
+<span class="nc" id="L281">                .findByStatusInOrderByCreatedAtDesc(EnumSet.of(ChatSessionStatus.OPEN, ChatSessionStatus.NEEDS_HUMAN_REVIEW))</span>
+<span class="nc" id="L282">                .stream()</span>
+<span class="nc" id="L283">                .map(this::toSummary)</span>
+<span class="nc" id="L284">                .collect(Collectors.toList());</span>
+    }
+
+    public UnlockChatMessageDTO toMessageDto(UnlockChatMessage m) {
+<span class="nc" id="L288">        Long sid = null;</span>
+<span class="nc bnc" id="L289" title="All 2 branches missed.">        if (m.getSession() != null) {</span>
+<span class="nc" id="L290">            sid = m.getSession().getId();</span>
+        }
+<span class="nc" id="L292">        return UnlockChatMessageDTO.builder()</span>
+<span class="nc" id="L293">                .id(m.getId())</span>
+<span class="nc" id="L294">                .sessionId(sid)</span>
+<span class="nc" id="L295">                .sender(m.getSender())</span>
+<span class="nc" id="L296">                .content(m.getContent())</span>
+<span class="nc" id="L297">                .sentAt(m.getSentAt())</span>
+<span class="nc" id="L298">                .build();</span>
+    }
+
+    private UnlockChatSessionDTO toSessionDto(UnlockChatSession s) {
+<span class="nc" id="L302">        UserBlock block = userBlockService.findById(s.getBlockId()).orElse(null);</span>
+<span class="nc" id="L303">        List&lt;UnlockChatMessage&gt; ordered = messageRepository.findBySessionOrderBySentAtAsc(s);</span>
+<span class="nc" id="L304">        List&lt;UnlockChatMessageDTO&gt; msgs = ordered.stream().map(this::toMessageDto).collect(Collectors.toList());</span>
+<span class="nc" id="L305">        return UnlockChatSessionDTO.builder()</span>
+<span class="nc" id="L306">                .sessionId(s.getId())</span>
+<span class="nc" id="L307">                .userId(s.getUserId())</span>
+<span class="nc" id="L308">                .blockId(s.getBlockId())</span>
+<span class="nc" id="L309">                .status(s.getStatus())</span>
+<span class="nc bnc" id="L310" title="All 2 branches missed.">                .blockReason(block != null ? block.getBlockReason() : null)</span>
+<span class="nc bnc" id="L311" title="All 2 branches missed.">                .failureCount(block != null ? block.getFailureCount() : null)</span>
+<span class="nc bnc" id="L312" title="All 2 branches missed.">                .blockedAt(block != null ? block.getBlockedAt() : null)</span>
+<span class="nc" id="L313">                .createdAt(s.getCreatedAt())</span>
+<span class="nc" id="L314">                .closedAt(s.getClosedAt())</span>
+<span class="nc" id="L315">                .closedBy(s.getClosedBy())</span>
+<span class="nc" id="L316">                .messages(msgs)</span>
+<span class="nc" id="L317">                .aiDecision(s.getAiDecision())</span>
+<span class="nc" id="L318">                .aiConfidence(s.getAiConfidence())</span>
+<span class="nc" id="L319">                .aiReasoning(s.getAiReasoning())</span>
+<span class="nc" id="L320">                .aiRecommendUnblock(s.getAiRecommendUnblock())</span>
+<span class="nc" id="L321">                .aiAnalyzedAt(s.getAiAnalyzedAt())</span>
+<span class="nc" id="L322">                .build();</span>
+    }
+
+    private UnlockChatSessionSummaryDTO toSummary(UnlockChatSession s) {
+<span class="nc" id="L326">        UserBlock block = userBlockService.findById(s.getBlockId()).orElse(null);</span>
+<span class="nc" id="L327">        long count = messageRepository.countBySession(s);</span>
+<span class="nc" id="L328">        Optional&lt;UnlockChatMessage&gt; last = messageRepository.findFirstBySessionOrderBySentAtDesc(s);</span>
+<span class="nc" id="L329">        long waiting = ChronoUnit.MINUTES.between(s.getCreatedAt(), LocalDateTime.now());</span>
+<span class="nc" id="L330">        return UnlockChatSessionSummaryDTO.builder()</span>
+<span class="nc" id="L331">                .sessionId(s.getId())</span>
+<span class="nc" id="L332">                .userId(s.getUserId())</span>
+<span class="nc" id="L333">                .userDisplayName(s.getUserId())</span>
+<span class="nc bnc" id="L334" title="All 2 branches missed.">                .blockReason(block != null ? block.getBlockReason() : null)</span>
+<span class="nc" id="L335">                .messageCount(count)</span>
+<span class="nc" id="L336">                .lastMessagePreview(last.map(m -&gt; preview(m.getContent(), 60)).orElse(&quot;&quot;))</span>
+<span class="nc" id="L337">                .lastMessageAt(last.map(UnlockChatMessage::getSentAt).orElse(s.getCreatedAt()))</span>
+<span class="nc" id="L338">                .waitingMinutes(waiting)</span>
+<span class="nc" id="L339">                .build();</span>
+    }
+
+    private static String preview(String text, int max) {
+<span class="nc bnc" id="L343" title="All 2 branches missed.">        String t = text != null ? text.trim() : &quot;&quot;;</span>
+<span class="nc bnc" id="L344" title="All 2 branches missed.">        return t.length() &lt;= max ? t : t.substring(0, max);</span>
+    }
+
+    private static boolean isSessionActiveForChat(ChatSessionStatus status) {
+<span class="nc bnc" id="L348" title="All 4 branches missed.">        return status == ChatSessionStatus.OPEN || status == ChatSessionStatus.NEEDS_HUMAN_REVIEW;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

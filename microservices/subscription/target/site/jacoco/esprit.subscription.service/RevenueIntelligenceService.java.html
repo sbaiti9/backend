@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RevenueIntelligenceService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.service</a> &gt; <span class="el_source">RevenueIntelligenceService.java</span></div><h1>RevenueIntelligenceService.java</h1><pre class="source lang-java linenums">package esprit.subscription.service;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import esprit.subscription.DTO.RevenueForecastDto;
+import esprit.subscription.entity.PricingPlan;
+import esprit.subscription.entity.Subscription;
+import esprit.subscription.repository.SubscriptionRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.YearMonth;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Agrège le MRR réel et produit historique + prévisions simples pour le dashboard admin.
+ */
+@Service
+public class RevenueIntelligenceService {
+
+<span class="fc" id="L29">    private static final Logger log = LoggerFactory.getLogger(RevenueIntelligenceService.class);</span>
+<span class="fc" id="L30">    private static final DateTimeFormatter MONTH_KEY = DateTimeFormatter.ofPattern(&quot;yyyy-MM&quot;);</span>
+    private static final double GROWTH_CAP = 0.15;
+    private static final double GROWTH_FLOOR = -0.05;
+    private static final double DEFAULT_MONTHLY_GROWTH = 0.015;
+
+    private final SubscriptionRepository subscriptionRepository;
+    private final SubscriptionService subscriptionService;
+    private final ObjectMapper objectMapper;
+
+    public RevenueIntelligenceService(SubscriptionRepository subscriptionRepository,
+                                        SubscriptionService subscriptionService,
+<span class="fc" id="L41">                                        ObjectMapper objectMapper) {</span>
+<span class="fc" id="L42">        this.subscriptionRepository = subscriptionRepository;</span>
+<span class="fc" id="L43">        this.subscriptionService = subscriptionService;</span>
+<span class="fc" id="L44">        this.objectMapper = objectMapper;</span>
+<span class="fc" id="L45">    }</span>
+
+    /**
+     * Recalcul des agrégats « intelligence » (placeholder : tout est calculé à la volée).
+     * Peut être étendu (cache, tâches batch, etc.).
+     */
+    public Instant refreshAggregates() {
+<span class="nc" id="L52">        log.info(&quot;Revenue intelligence refresh requested — aggregates recomputed on next forecast read&quot;);</span>
+<span class="nc" id="L53">        return Instant.now();</span>
+    }
+
+    @Transactional(readOnly = true)
+    public RevenueForecastDto buildForecast() {
+<span class="nc" id="L58">        List&lt;Subscription&gt; active = subscriptionRepository.findAllActiveWithPlans();</span>
+<span class="nc" id="L59">        double currentMrr = active.stream().mapToDouble(RevenueIntelligenceService::monthlyEquivalent).sum();</span>
+<span class="nc" id="L60">        currentMrr = round2(currentMrr);</span>
+
+<span class="nc" id="L62">        double monthlyRevenue = round2(subscriptionService.calculateMonthlyRevenue());</span>
+<span class="nc" id="L63">        double yearlyRevenue = round2(subscriptionService.calculateYearlyRevenue());</span>
+
+<span class="nc" id="L65">        YearMonth now = YearMonth.now();</span>
+<span class="nc" id="L66">        List&lt;Double&gt; historySeries = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L67">        List&lt;String&gt; historyMonths = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L68" title="All 2 branches missed.">        for (int i = 11; i &gt;= 0; i--) {</span>
+<span class="nc" id="L69">            YearMonth ym = now.minusMonths(i);</span>
+<span class="nc" id="L70">            historyMonths.add(ym.format(MONTH_KEY));</span>
+<span class="nc" id="L71">            LocalDateTime endOfMonth = ym.atEndOfMonth().atTime(23, 59, 59);</span>
+<span class="nc" id="L72">            double mrrAtMonth = active.stream()</span>
+<span class="nc bnc" id="L73" title="All 2 branches missed.">                    .filter(s -&gt; !s.getCreatedAt().isAfter(endOfMonth))</span>
+<span class="nc" id="L74">                    .mapToDouble(RevenueIntelligenceService::monthlyEquivalent)</span>
+<span class="nc" id="L75">                    .sum();</span>
+<span class="nc" id="L76">            historySeries.add(round2(mrrAtMonth));</span>
+        }
+
+<span class="nc" id="L79">        double g = estimateMonthlyGrowthRate(historySeries);</span>
+<span class="nc" id="L80">        double p3 = round2(currentMrr * Math.pow(1 + g, 3));</span>
+<span class="nc" id="L81">        double p6 = round2(currentMrr * Math.pow(1 + g, 6));</span>
+<span class="nc" id="L82">        double arr = round2(p6 * 12);</span>
+
+<span class="nc" id="L84">        List&lt;Map&lt;String, Object&gt;&gt; historyPoints = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">        for (int i = 0; i &lt; historyMonths.size(); i++) {</span>
+<span class="nc" id="L86">            Map&lt;String, Object&gt; row = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L87">            row.put(&quot;month&quot;, historyMonths.get(i));</span>
+<span class="nc" id="L88">            row.put(&quot;mrr&quot;, historySeries.get(i));</span>
+<span class="nc" id="L89">            historyPoints.add(row);</span>
+        }
+
+<span class="nc" id="L92">        List&lt;Map&lt;String, Object&gt;&gt; forecastPoints = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L93" title="All 2 branches missed.">        for (int k = 1; k &lt;= 6; k++) {</span>
+<span class="nc" id="L94">            YearMonth ym = now.plusMonths(k);</span>
+<span class="nc" id="L95">            double mrr = round2(currentMrr * Math.pow(1 + g, k));</span>
+<span class="nc" id="L96">            Map&lt;String, Object&gt; row = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L97">            row.put(&quot;month&quot;, ym.format(MONTH_KEY));</span>
+<span class="nc" id="L98">            row.put(&quot;mrr&quot;, mrr);</span>
+<span class="nc" id="L99">            row.put(&quot;lower&quot;, round2(mrr * 0.9));</span>
+<span class="nc" id="L100">            row.put(&quot;upper&quot;, round2(mrr * 1.1));</span>
+<span class="nc" id="L101">            forecastPoints.add(row);</span>
+        }
+
+<span class="nc" id="L104">        String historyJson = &quot;[]&quot;;</span>
+<span class="nc" id="L105">        String forecastJson = &quot;[]&quot;;</span>
+        try {
+<span class="nc" id="L107">            historyJson = objectMapper.writeValueAsString(historyPoints);</span>
+<span class="nc" id="L108">            forecastJson = objectMapper.writeValueAsString(forecastPoints);</span>
+<span class="nc" id="L109">        } catch (JsonProcessingException e) {</span>
+<span class="nc" id="L110">            log.warn(&quot;Failed to serialize MRR JSON&quot;, e);</span>
+<span class="nc" id="L111">        }</span>
+
+<span class="nc" id="L113">        return RevenueForecastDto.builder()</span>
+<span class="nc" id="L114">                .currentMrr(currentMrr)</span>
+<span class="nc" id="L115">                .monthlyRevenue(monthlyRevenue)</span>
+<span class="nc" id="L116">                .yearlyRevenue(yearlyRevenue)</span>
+<span class="nc" id="L117">                .projected3Month(p3)</span>
+<span class="nc" id="L118">                .projected6Month(p6)</span>
+<span class="nc" id="L119">                .projectedArr(arr)</span>
+<span class="nc" id="L120">                .historyJson(historyJson)</span>
+<span class="nc" id="L121">                .forecastJson(forecastJson)</span>
+<span class="nc" id="L122">                .generatedAt(Instant.now().toString())</span>
+<span class="nc" id="L123">                .build();</span>
+    }
+
+    private static double estimateMonthlyGrowthRate(List&lt;Double&gt; historyChrono) {
+<span class="nc bnc" id="L127" title="All 4 branches missed.">        if (historyChrono == null || historyChrono.size() &lt; 2) {</span>
+<span class="nc" id="L128">            return DEFAULT_MONTHLY_GROWTH;</span>
+        }
+<span class="nc" id="L130">        double first = historyChrono.get(0);</span>
+<span class="nc" id="L131">        double last = historyChrono.get(historyChrono.size() - 1);</span>
+<span class="nc" id="L132">        int span = historyChrono.size() - 1;</span>
+<span class="nc bnc" id="L133" title="All 6 branches missed.">        if (first &lt;= 0 || last &lt;= 0 || span &lt;= 0) {</span>
+<span class="nc" id="L134">            return DEFAULT_MONTHLY_GROWTH;</span>
+        }
+<span class="nc" id="L136">        double raw = Math.pow(last / first, 1.0 / span) - 1.0;</span>
+<span class="nc bnc" id="L137" title="All 4 branches missed.">        if (Double.isNaN(raw) || Double.isInfinite(raw)) {</span>
+<span class="nc" id="L138">            return DEFAULT_MONTHLY_GROWTH;</span>
+        }
+<span class="nc" id="L140">        return Math.max(GROWTH_FLOOR, Math.min(GROWTH_CAP, raw));</span>
+    }
+
+    private static double monthlyEquivalent(Subscription s) {
+<span class="nc" id="L144">        PricingPlan p = s.getPricingPlan();</span>
+<span class="nc bnc" id="L145" title="All 2 branches missed.">        if (p == null) {</span>
+<span class="nc" id="L146">            return 0;</span>
+        }
+<span class="nc" id="L148">        String cycle = s.getBillingCycle();</span>
+<span class="nc bnc" id="L149" title="All 4 branches missed.">        if (cycle != null &amp;&amp; cycle.equalsIgnoreCase(&quot;YEARLY&quot;)) {</span>
+<span class="nc" id="L150">            Double y = p.getYearlyPrice();</span>
+<span class="nc bnc" id="L151" title="All 2 branches missed.">            return y != null ? y / 12.0 : 0;</span>
+        }
+<span class="nc" id="L153">        Double m = p.getMonthlyPrice();</span>
+<span class="nc bnc" id="L154" title="All 2 branches missed.">        return m != null ? m : 0;</span>
+    }
+
+    private static double round2(double v) {
+<span class="nc" id="L158">        return Math.round(v * 100.0) / 100.0;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

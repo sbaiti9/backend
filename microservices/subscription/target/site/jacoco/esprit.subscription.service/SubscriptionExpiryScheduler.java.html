@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SubscriptionExpiryScheduler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.service</a> &gt; <span class="el_source">SubscriptionExpiryScheduler.java</span></div><h1>SubscriptionExpiryScheduler.java</h1><pre class="source lang-java linenums">package esprit.subscription.service;
+
+import esprit.subscription.DTO.CompanyDto;
+import esprit.subscription.client.EntrepriseClient;
+import esprit.subscription.entity.PromoCode;
+import esprit.subscription.entity.Subscription;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+import java.time.LocalDate;
+import java.util.Optional;
+
+@Component
+public class SubscriptionExpiryScheduler {
+
+<span class="fc" id="L18">    private static final Logger log = LoggerFactory.getLogger(SubscriptionExpiryScheduler.class);</span>
+
+    private final SubscriptionService subscriptionService;
+    private final EmailService emailService;
+    private final EntrepriseClient entrepriseClient;
+    private final PromoCodeService promoCodeService;
+
+    public SubscriptionExpiryScheduler(
+            SubscriptionService subscriptionService,
+            EmailService emailService,
+            EntrepriseClient entrepriseClient,
+<span class="fc" id="L29">            PromoCodeService promoCodeService) {</span>
+<span class="fc" id="L30">        this.subscriptionService = subscriptionService;</span>
+<span class="fc" id="L31">        this.emailService = emailService;</span>
+<span class="fc" id="L32">        this.entrepriseClient = entrepriseClient;</span>
+<span class="fc" id="L33">        this.promoCodeService = promoCodeService;</span>
+<span class="fc" id="L34">    }</span>
+
+    /** Expiry reminders — daily at 00:36 server time. */
+    @Scheduled(cron = &quot;0 36 0 * * ?&quot;)
+    public void checkAndSendExpiryEmails() {
+<span class="nc" id="L39">        subscriptionService.findAll().forEach(subscription -&gt; {</span>
+
+<span class="nc bnc" id="L41" title="All 2 branches missed.">            if (subscription.getEndDate() == null) return;</span>
+
+<span class="nc" id="L43">            long daysLeft = java.time.Duration.between(</span>
+<span class="nc" id="L44">                    java.time.LocalDateTime.now(),</span>
+<span class="nc" id="L45">                    subscription.getEndDate()).toDays();</span>
+
+<span class="nc bnc" id="L47" title="All 6 branches missed.">            if (daysLeft == 7 || daysLeft == 3 || daysLeft == 1) {</span>
+                try {
+<span class="nc" id="L49">                    CompanyDto company = entrepriseClient.getCompanyByUserId(subscription.getUserId());</span>
+<span class="nc bnc" id="L50" title="All 4 branches missed.">                    if (company != null &amp;&amp; company.getEmail() != null) {</span>
+<span class="nc" id="L51">                        emailService.sendExpiryNotification(</span>
+<span class="nc" id="L52">                                company.getEmail(),</span>
+<span class="nc bnc" id="L53" title="All 2 branches missed.">                                company.getName() != null ? company.getName() : &quot;Client&quot;,</span>
+                                daysLeft
+                        );
+                    }
+<span class="nc" id="L57">                } catch (Exception e) {</span>
+<span class="nc" id="L58">                    log.warn(&quot;Expiry email skipped for userId={}: {}&quot;, subscription.getUserId(), e.getMessage());</span>
+<span class="nc" id="L59">                }</span>
+            }
+<span class="nc" id="L61">        });</span>
+<span class="nc" id="L62">    }</span>
+
+    /** Birthday promo — daily at 10:05. */
+    @Scheduled(cron = &quot;0 5 10 * * ?&quot;)
+    public void processBirthdayPromos() {
+<span class="nc bnc" id="L67" title="All 2 branches missed.">        for (Subscription subscription : subscriptionService.findAll()) {</span>
+<span class="nc bnc" id="L68" title="All 2 branches missed.">            if (!&quot;ACTIVE&quot;.equalsIgnoreCase(subscription.getStatus())) {</span>
+<span class="nc" id="L69">                continue;</span>
+            }
+<span class="nc" id="L71">            String role = subscription.getUserRole();</span>
+<span class="nc bnc" id="L72" title="All 4 branches missed.">            if (role != null &amp;&amp; !role.isBlank()</span>
+<span class="nc bnc" id="L73" title="All 2 branches missed.">                    &amp;&amp; !&quot;ENTERPRISE&quot;.equalsIgnoreCase(role.trim())</span>
+<span class="nc bnc" id="L74" title="All 2 branches missed.">                    &amp;&amp; !&quot;ENTREPRISE&quot;.equalsIgnoreCase(role.trim())) {</span>
+<span class="nc" id="L75">                continue;</span>
+            }
+            try {
+<span class="nc" id="L78">                CompanyDto company = entrepriseClient.getCompanyByUserId(subscription.getUserId());</span>
+<span class="nc bnc" id="L79" title="All 4 branches missed.">                if (company == null || company.getEmail() == null) {</span>
+<span class="nc" id="L80">                    continue;</span>
+                }
+<span class="nc" id="L82">                LocalDate dob = company.getDateOfBirth();</span>
+<span class="nc bnc" id="L83" title="All 2 branches missed.">                if (dob == null) {</span>
+<span class="nc" id="L84">                    continue;</span>
+                }
+<span class="nc" id="L86">                LocalDate today = LocalDate.now();</span>
+<span class="nc bnc" id="L87" title="All 4 branches missed.">                if (dob.getMonthValue() != today.getMonthValue() || dob.getDayOfMonth() != today.getDayOfMonth()) {</span>
+<span class="nc" id="L88">                    continue;</span>
+                }
+<span class="nc" id="L90">                Optional&lt;PromoCode&gt; created = promoCodeService.generateBirthdayPromoForUser(subscription.getUserId());</span>
+<span class="nc" id="L91">                created.ifPresent(p -&gt; emailService.sendBirthdayPromoEmail(</span>
+<span class="nc" id="L92">                        company.getEmail(),</span>
+<span class="nc bnc" id="L93" title="All 2 branches missed.">                        company.getName() != null ? company.getName() : &quot;Client&quot;,</span>
+<span class="nc" id="L94">                        p.getCode()));</span>
+<span class="nc" id="L95">            } catch (Exception e) {</span>
+<span class="nc" id="L96">                log.warn(&quot;Birthday promo skipped for subscription {}: {}&quot;, subscription.getId(), e.getMessage());</span>
+<span class="nc" id="L97">            }</span>
+<span class="nc" id="L98">        }</span>
+<span class="nc" id="L99">    }</span>
+
+    /** Auto-renewal — daily at 10:06. */
+    @Scheduled(cron = &quot;0 6 10 * * ?&quot;)
+    public void processAutoRenewals() {
+        try {
+<span class="nc" id="L105">            subscriptionService.processAutoRenewalsDueToday();</span>
+<span class="nc" id="L106">        } catch (Exception e) {</span>
+<span class="nc" id="L107">            log.error(&quot;Auto-renew batch failed&quot;, e);</span>
+<span class="nc" id="L108">        }</span>
+<span class="nc" id="L109">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

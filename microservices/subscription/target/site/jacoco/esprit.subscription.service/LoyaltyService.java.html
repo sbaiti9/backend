@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>LoyaltyService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.service</a> &gt; <span class="el_source">LoyaltyService.java</span></div><h1>LoyaltyService.java</h1><pre class="source lang-java linenums">package esprit.subscription.service;
+
+import esprit.subscription.DTO.LoyaltyStatusDto;
+import esprit.subscription.entity.LoyaltyTier;
+import esprit.subscription.entity.UserLoyaltyAccount;
+import esprit.subscription.repository.UserLoyaltyAccountRepository;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Optional;
+
+@Service
+public class LoyaltyService {
+    public static final int POINTS_PER_SUCCESSFUL_RENEWAL = 100;
+    public static final int REDEEM_POINTS_COST = 500;
+    public static final int REDEEM_DISCOUNT_PERCENT = 5;
+
+    private final UserLoyaltyAccountRepository loyaltyRepo;
+
+<span class="fc" id="L20">    public LoyaltyService(UserLoyaltyAccountRepository loyaltyRepo) {</span>
+<span class="fc" id="L21">        this.loyaltyRepo = loyaltyRepo;</span>
+<span class="fc" id="L22">    }</span>
+
+<span class="fc" id="L24">    public record LoyaltyRewardResult(</span>
+            UserLoyaltyAccount account,
+            boolean milestoneReached,
+            int milestoneMonth,
+            int milestoneDiscountPercent
+    ) {}
+
+    @Transactional
+    public UserLoyaltyAccount getOrCreate(Long userId) {
+<span class="fc" id="L33">        return loyaltyRepo.findByUserId(userId).orElseGet(() -&gt; {</span>
+<span class="nc" id="L34">            UserLoyaltyAccount a = new UserLoyaltyAccount();</span>
+<span class="nc" id="L35">            a.setUserId(userId);</span>
+<span class="nc" id="L36">            a.setLoyaltyMonths(0);</span>
+<span class="nc" id="L37">            a.setWalletPoints(0);</span>
+<span class="nc" id="L38">            a.setLoyaltyTier(LoyaltyTier.NONE);</span>
+<span class="nc" id="L39">            a.setLastMilestoneMonth(0);</span>
+<span class="nc" id="L40">            return loyaltyRepo.save(a);</span>
+        });
+    }
+
+    @Transactional
+    public LoyaltyStatusDto getStatus(Long userId) {
+<span class="nc" id="L46">        UserLoyaltyAccount a = getOrCreate(userId);</span>
+<span class="nc" id="L47">        int months = Optional.ofNullable(a.getLoyaltyMonths()).orElse(0);</span>
+<span class="nc" id="L48">        int points = Optional.ofNullable(a.getWalletPoints()).orElse(0);</span>
+<span class="nc" id="L49">        LoyaltyTier tier = Optional.ofNullable(a.getLoyaltyTier()).orElse(LoyaltyTier.NONE);</span>
+<span class="nc" id="L50">        LoyaltyTier computedTier = computeTier(months);</span>
+
+        // Self-heal legacy data: recalculate tier from months when stored tier is stale.
+<span class="nc bnc" id="L53" title="All 2 branches missed.">        if (tier != computedTier) {</span>
+<span class="nc" id="L54">            a.setLoyaltyTier(computedTier);</span>
+<span class="nc" id="L55">            a = loyaltyRepo.save(a);</span>
+<span class="nc" id="L56">            tier = computedTier;</span>
+        }
+
+<span class="nc" id="L59">        int next = nextTierTarget(months);</span>
+<span class="nc" id="L60">        int monthsToNext = Math.max(0, next - months);</span>
+<span class="nc" id="L61">        String nextTier = nextTierName(months);</span>
+<span class="nc" id="L62">        int pct = progressPercent(months);</span>
+<span class="nc" id="L63">        int pointsNeeded = Math.max(0, REDEEM_POINTS_COST - points);</span>
+
+<span class="nc" id="L65">        LoyaltyStatusDto dto = new LoyaltyStatusDto();</span>
+<span class="nc" id="L66">        dto.setUserId(userId);</span>
+<span class="nc" id="L67">        dto.setLoyaltyMonths(months);</span>
+<span class="nc" id="L68">        dto.setWalletPoints(points);</span>
+<span class="nc" id="L69">        dto.setLoyaltyTier(tier);</span>
+<span class="nc" id="L70">        dto.setMonthsToNextTier(monthsToNext);</span>
+<span class="nc" id="L71">        dto.setNextTier(nextTier);</span>
+<span class="nc" id="L72">        dto.setProgressPercent(pct);</span>
+<span class="nc" id="L73">        dto.setPointsNeededForRedemption(pointsNeeded);</span>
+<span class="nc bnc" id="L74" title="All 2 branches missed.">        dto.setProgressLabel(monthsToNext &lt;= 0 ? &quot;Gold tier reached&quot; : monthsToNext + &quot; more months to &quot; + nextTier + &quot; tier.&quot;);</span>
+<span class="nc" id="L75">        dto.setBadgeLabel(tier.name());</span>
+<span class="nc" id="L76">        dto.setLastMilestoneMonth(Optional.ofNullable(a.getLastMilestoneMonth()).orElse(0));</span>
+<span class="nc" id="L77">        dto.setLastMilestonePromoCode(a.getLastMilestonePromoCode());</span>
+<span class="nc" id="L78">        return dto;</span>
+    }
+
+    @Transactional
+    public LoyaltyRewardResult applySuccessfulRenewal(Long userId, int pointsToRedeem) {
+<span class="fc" id="L83">        UserLoyaltyAccount a = getOrCreate(userId);</span>
+<span class="fc" id="L84">        int points = Optional.ofNullable(a.getWalletPoints()).orElse(0);</span>
+<span class="fc" id="L85">        int months = Optional.ofNullable(a.getLoyaltyMonths()).orElse(0);</span>
+
+<span class="pc bpc" id="L87" title="1 of 2 branches missed.">        if (pointsToRedeem &gt; 0) {</span>
+<span class="nc bnc" id="L88" title="All 2 branches missed.">            if (pointsToRedeem != REDEEM_POINTS_COST) {</span>
+<span class="nc" id="L89">                throw new IllegalArgumentException(&quot;Points redemption must be exactly &quot; + REDEEM_POINTS_COST);</span>
+            }
+<span class="nc bnc" id="L91" title="All 2 branches missed.">            if (points &lt; pointsToRedeem) {</span>
+<span class="nc" id="L92">                throw new IllegalArgumentException(&quot;Insufficient wallet points&quot;);</span>
+            }
+<span class="nc" id="L94">            points -= pointsToRedeem;</span>
+        }
+
+<span class="fc" id="L97">        points += POINTS_PER_SUCCESSFUL_RENEWAL;</span>
+<span class="fc" id="L98">        months += 1;</span>
+
+<span class="fc" id="L100">        a.setWalletPoints(points);</span>
+<span class="fc" id="L101">        a.setLoyaltyMonths(months);</span>
+<span class="fc" id="L102">        a.setLoyaltyTier(computeTier(months));</span>
+
+<span class="fc" id="L104">        int milestone = currentMilestone(months);</span>
+<span class="fc" id="L105">        int lastMilestone = Optional.ofNullable(a.getLastMilestoneMonth()).orElse(0);</span>
+<span class="pc bpc" id="L106" title="2 of 4 branches missed.">        boolean reached = milestone &gt; 0 &amp;&amp; milestone &gt; lastMilestone;</span>
+<span class="pc bpc" id="L107" title="1 of 2 branches missed.">        if (reached) {</span>
+<span class="fc" id="L108">            a.setLastMilestoneMonth(milestone);</span>
+        }
+
+<span class="fc" id="L111">        UserLoyaltyAccount saved = loyaltyRepo.save(a);</span>
+<span class="fc" id="L112">        return new LoyaltyRewardResult(saved, reached, milestone, discountForMilestone(milestone));</span>
+    }
+
+    @Transactional
+    public int previewRedeemPercent(Long userId, boolean redeemPoints) {
+<span class="pc bpc" id="L117" title="1 of 2 branches missed.">        if (!redeemPoints) {</span>
+<span class="nc" id="L118">            return 0;</span>
+        }
+<span class="fc" id="L120">        UserLoyaltyAccount a = getOrCreate(userId);</span>
+<span class="fc" id="L121">        int points = Optional.ofNullable(a.getWalletPoints()).orElse(0);</span>
+<span class="pc bpc" id="L122" title="1 of 2 branches missed.">        if (points &lt; REDEEM_POINTS_COST) {</span>
+<span class="fc" id="L123">            throw new IllegalArgumentException(&quot;Need at least &quot; + REDEEM_POINTS_COST + &quot; points to redeem&quot;);</span>
+        }
+<span class="nc" id="L125">        return REDEEM_DISCOUNT_PERCENT;</span>
+    }
+
+    private static LoyaltyTier computeTier(int months) {
+<span class="pc bpc" id="L129" title="1 of 2 branches missed.">        if (months &gt;= 12) return LoyaltyTier.GOLD;</span>
+<span class="pc bpc" id="L130" title="1 of 2 branches missed.">        if (months &gt;= 6) return LoyaltyTier.SILVER;</span>
+<span class="pc bpc" id="L131" title="1 of 2 branches missed.">        if (months &gt;= 3) return LoyaltyTier.BRONZE;</span>
+<span class="nc" id="L132">        return LoyaltyTier.NONE;</span>
+    }
+
+    private static int currentMilestone(int months) {
+<span class="pc bpc" id="L136" title="1 of 2 branches missed.">        if (months &gt;= 12) return 12;</span>
+<span class="pc bpc" id="L137" title="1 of 2 branches missed.">        if (months &gt;= 6) return 6;</span>
+<span class="pc bpc" id="L138" title="1 of 2 branches missed.">        if (months &gt;= 3) return 3;</span>
+<span class="nc" id="L139">        return 0;</span>
+    }
+
+    private static int discountForMilestone(int month) {
+<span class="pc bpc" id="L143" title="3 of 4 branches missed.">        return switch (month) {</span>
+<span class="fc" id="L144">            case 3 -&gt; 5;</span>
+<span class="nc" id="L145">            case 6 -&gt; 10;</span>
+<span class="nc" id="L146">            case 12 -&gt; 15;</span>
+<span class="nc" id="L147">            default -&gt; 0;</span>
+        };
+    }
+
+    private static int nextTierTarget(int months) {
+<span class="nc bnc" id="L152" title="All 2 branches missed.">        if (months &lt; 3) return 3;</span>
+<span class="nc bnc" id="L153" title="All 2 branches missed.">        if (months &lt; 6) return 6;</span>
+<span class="nc bnc" id="L154" title="All 2 branches missed.">        if (months &lt; 12) return 12;</span>
+<span class="nc" id="L155">        return 12;</span>
+    }
+
+    private static String nextTierName(int months) {
+<span class="nc bnc" id="L159" title="All 2 branches missed.">        if (months &lt; 3) return &quot;Bronze&quot;;</span>
+<span class="nc bnc" id="L160" title="All 2 branches missed.">        if (months &lt; 6) return &quot;Silver&quot;;</span>
+<span class="nc bnc" id="L161" title="All 2 branches missed.">        if (months &lt; 12) return &quot;Gold&quot;;</span>
+<span class="nc" id="L162">        return &quot;Gold&quot;;</span>
+    }
+
+    private static int progressPercent(int months) {
+<span class="nc bnc" id="L166" title="All 2 branches missed.">        if (months &lt; 3) return Math.min(100, Math.round((months / 3f) * 100f));</span>
+<span class="nc bnc" id="L167" title="All 2 branches missed.">        if (months &lt; 6) return Math.min(100, Math.round(((months - 3) / 3f) * 100f));</span>
+<span class="nc bnc" id="L168" title="All 2 branches missed.">        if (months &lt; 12) return Math.min(100, Math.round(((months - 6) / 6f) * 100f));</span>
+<span class="nc" id="L169">        return 100;</span>
+    }
+}
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

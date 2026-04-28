@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>LivenessVerification.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.entity</a> &gt; <span class="el_source">LivenessVerification.java</span></div><h1>LivenessVerification.java</h1><pre class="source lang-java linenums">package esprit.subscription.entity;
+
+import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@Entity
+@Table(name = &quot;liveness_verification&quot;, indexes = {
+        @Index(name = &quot;idx_lv_user_created&quot;, columnList = &quot;userId,createdAt&quot;)
+})
+@Getter
+<span class="nc" id="L16">@Setter</span>
+<span class="fc" id="L17">@NoArgsConstructor</span>
+public class LivenessVerification {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+<span class="nc" id="L22">    private Long id;</span>
+
+    @Column(nullable = false)
+<span class="nc" id="L25">    private Long userId;</span>
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+<span class="nc" id="L29">    private ChallengeGesture challengeGesture;</span>
+
+    @Column(nullable = false, unique = true, length = 48)
+<span class="nc" id="L32">    private String challengeToken;</span>
+
+<span class="nc" id="L34">    private Double livenessScore;</span>
+<span class="nc" id="L35">    private Double gestureScore;</span>
+<span class="nc" id="L36">    private Double antiSpoofScore;</span>
+<span class="nc" id="L37">    private Double globalScore;</span>
+
+<span class="fc" id="L39">    @Enumerated(EnumType.STRING)</span>
+    @Column(nullable = false, length = 16)
+<span class="nc" id="L41">    private LivenessVerificationStatus status = LivenessVerificationStatus.PENDING;</span>
+
+<span class="fc" id="L43">    @Column(nullable = false)</span>
+<span class="nc" id="L44">    private int attemptCount = 0;</span>
+
+<span class="nc" id="L46">    private String ipAddress;</span>
+
+    @Column(length = 512)
+<span class="nc" id="L49">    private String userAgent;</span>
+
+    @Column(nullable = false)
+<span class="nc" id="L52">    private LocalDateTime createdAt;</span>
+
+    @Column(nullable = false)
+<span class="nc" id="L55">    private LocalDateTime expiresAt;</span>
+
+    /** When set, the JWT bound to this challenge was already used for a payment (single-use). */
+<span class="nc" id="L58">    private LocalDateTime jwtConsumedAt;</span>
+
+    @PrePersist
+    void prePersist() {
+<span class="nc bnc" id="L62" title="All 4 branches missed.">        if (challengeToken == null || challengeToken.isBlank()) {</span>
+<span class="nc" id="L63">            challengeToken = UUID.randomUUID().toString();</span>
+        }
+<span class="nc bnc" id="L65" title="All 2 branches missed.">        if (createdAt == null) {</span>
+<span class="nc" id="L66">            createdAt = LocalDateTime.now();</span>
+        }
+<span class="nc bnc" id="L68" title="All 2 branches missed.">        if (expiresAt == null) {</span>
+<span class="nc" id="L69">            expiresAt = createdAt.plusMinutes(3);</span>
+        }
+<span class="nc" id="L71">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

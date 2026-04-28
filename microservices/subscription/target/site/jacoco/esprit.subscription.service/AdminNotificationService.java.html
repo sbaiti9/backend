@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AdminNotificationService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.service</a> &gt; <span class="el_source">AdminNotificationService.java</span></div><h1>AdminNotificationService.java</h1><pre class="source lang-java linenums">package esprit.subscription.service;
+
+import esprit.subscription.DTO.admin.AdminNotificationResponse;
+import esprit.subscription.entity.AdminNotification;
+import esprit.subscription.repository.AdminNotificationRepository;
+import org.springframework.http.HttpStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+@Service
+public class AdminNotificationService {
+
+<span class="fc" id="L23">    private static final Logger log = LoggerFactory.getLogger(AdminNotificationService.class);</span>
+
+    private final AdminNotificationRepository repository;
+    private final SseStreamService sseStreamService;
+
+<span class="fc" id="L28">    public AdminNotificationService(AdminNotificationRepository repository, SseStreamService sseStreamService) {</span>
+<span class="fc" id="L29">        this.repository = repository;</span>
+<span class="fc" id="L30">        this.sseStreamService = sseStreamService;</span>
+<span class="fc" id="L31">    }</span>
+
+    /** Pour vérifier la cloche sans passer par un blocage liveness (secret admin requis). */
+    @Transactional
+    public AdminNotificationResponse createUiTestNotification() {
+<span class="nc" id="L36">        AdminNotification n = createNotification(</span>
+                &quot;ADMIN_UI_TEST&quot;,
+                null,
+                &quot;0&quot;,
+                &quot;Test cloche : API + base OK. Marquez comme lu après vérification.&quot;,
+                null,
+                null);
+<span class="nc" id="L43">        return toDto(n);</span>
+    }
+
+    @Transactional
+    public AdminNotification createNotification(
+            String type,
+            Long sessionId,
+            String userId,
+            String message,
+            String aiDecision,
+            Integer aiConfidence) {
+<span class="nc" id="L54">        AdminNotification n = AdminNotification.builder()</span>
+<span class="nc" id="L55">                .type(type)</span>
+<span class="nc" id="L56">                .sessionId(sessionId)</span>
+<span class="nc" id="L57">                .userId(userId)</span>
+<span class="nc" id="L58">                .message(message)</span>
+<span class="nc" id="L59">                .aiDecision(aiDecision)</span>
+<span class="nc" id="L60">                .aiConfidence(aiConfidence)</span>
+<span class="nc" id="L61">                .refUserBlockId(null)</span>
+<span class="nc" id="L62">                .actionToken(UUID.randomUUID().toString())</span>
+<span class="nc" id="L63">                .isRead(false)</span>
+<span class="nc" id="L64">                .createdAt(LocalDateTime.now())</span>
+<span class="nc" id="L65">                .build();</span>
+<span class="nc" id="L66">        return repository.save(n);</span>
+    }
+
+    /**
+     * First-time block row inserted in {@code user_blocks} (e.g. liveness failures). Not called on updates.
+     * Uses a new transaction so a failure here never rolls back {@code user_blocks} persistence.
+     * Does not throw — callers rely on block row being committed.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public AdminNotification notifyUserBlocked(String userId, String reason, Long userBlockId) {
+        try {
+<span class="nc" id="L77">            AdminNotification n = AdminNotification.builder()</span>
+<span class="nc" id="L78">                    .type(&quot;USER_BLOCKED&quot;)</span>
+<span class="nc" id="L79">                    .sessionId(null)</span>
+<span class="nc" id="L80">                    .userId(userId)</span>
+<span class="nc bnc" id="L81" title="All 2 branches missed.">                    .message(reason != null ? reason : &quot;Utilisateur bloqué&quot;)</span>
+<span class="nc" id="L82">                    .aiDecision(null)</span>
+<span class="nc" id="L83">                    .aiConfidence(null)</span>
+<span class="nc" id="L84">                    .refUserBlockId(userBlockId)</span>
+<span class="nc" id="L85">                    .actionToken(UUID.randomUUID().toString())</span>
+<span class="nc" id="L86">                    .isRead(false)</span>
+<span class="nc" id="L87">                    .createdAt(LocalDateTime.now())</span>
+<span class="nc" id="L88">                    .build();</span>
+<span class="nc" id="L89">            n = repository.save(n);</span>
+<span class="nc" id="L90">            log.info(</span>
+                    &quot;Notification USER_BLOCKED créée id={} userId={} blockId={} (cloche + SSE)&quot;,
+<span class="nc" id="L92">                    n.getId(),</span>
+                    userId,
+                    userBlockId);
+<span class="nc" id="L95">            Map&lt;String, Object&gt; payload = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L96">            payload.put(&quot;type&quot;, &quot;USER_BLOCKED&quot;);</span>
+<span class="nc" id="L97">            payload.put(&quot;notificationId&quot;, n.getId());</span>
+<span class="nc" id="L98">            payload.put(&quot;userId&quot;, userId);</span>
+<span class="nc" id="L99">            payload.put(&quot;userBlockId&quot;, userBlockId);</span>
+<span class="nc" id="L100">            payload.put(&quot;actionToken&quot;, n.getActionToken());</span>
+<span class="nc" id="L101">            payload.put(&quot;message&quot;, n.getMessage());</span>
+<span class="nc" id="L102">            sseStreamService.sendToAdmins(&quot;USER_BLOCKED&quot;, payload);</span>
+<span class="nc" id="L103">            sseStreamService.pushToAdmin(&quot;USER_BLOCKED&quot;, payload);</span>
+<span class="nc" id="L104">            return n;</span>
+<span class="nc" id="L105">        } catch (Exception e) {</span>
+<span class="nc" id="L106">            log.warn(</span>
+                    &quot;notifyUserBlocked failed (user_block still saved elsewhere): {}&quot;,
+<span class="nc" id="L108">                    e.getMessage(),</span>
+                    e);
+<span class="nc" id="L110">            return null;</span>
+        }
+    }
+
+    /** Regenerate {@link AdminNotification#getActionToken()} (e.g. after sharing an old link). */
+    @Transactional
+    public AdminNotificationResponse refreshActionToken(Long notificationId) {
+<span class="nc" id="L117">        AdminNotification n = repository.findById(notificationId)</span>
+<span class="nc" id="L118">                .orElseThrow(() -&gt; new ResponseStatusException(HttpStatus.NOT_FOUND, &quot;Notification introuvable&quot;));</span>
+<span class="nc" id="L119">        n.setActionToken(UUID.randomUUID().toString());</span>
+<span class="nc" id="L120">        repository.save(n);</span>
+<span class="nc" id="L121">        Map&lt;String, Object&gt; payload = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L122">        payload.put(&quot;notificationId&quot;, n.getId());</span>
+<span class="nc" id="L123">        payload.put(&quot;userId&quot;, n.getUserId());</span>
+<span class="nc" id="L124">        payload.put(&quot;actionToken&quot;, n.getActionToken());</span>
+<span class="nc" id="L125">        sseStreamService.sendToAdmins(&quot;NOTIFICATION_TOKEN_REFRESHED&quot;, payload);</span>
+<span class="nc" id="L126">        sseStreamService.pushToAdmin(&quot;NOTIFICATION_TOKEN_REFRESHED&quot;, payload);</span>
+<span class="nc" id="L127">        return toDto(n);</span>
+    }
+
+    @Transactional(readOnly = true)
+    public List&lt;AdminNotificationResponse&gt; getUnreadNotifications() {
+<span class="nc" id="L132">        return repository.findByIsReadFalseOrderByCreatedAtDesc().stream()</span>
+<span class="nc" id="L133">                .map(this::toDto)</span>
+<span class="nc" id="L134">                .toList();</span>
+    }
+
+    /**
+     * Résout le jeton unique ({@link AdminNotification#getActionToken()}) pour ouvrir le bon utilisateur / session
+     * depuis la cloche ou un lien partagé — une ligne de notification par événement (ex. blocage).
+     */
+    @Transactional(readOnly = true)
+    public AdminNotificationResponse findByActionToken(String token) {
+<span class="nc bnc" id="L143" title="All 4 branches missed.">        if (token == null || token.isBlank()) {</span>
+<span class="nc" id="L144">            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, &quot;token required&quot;);</span>
+        }
+<span class="nc" id="L146">        return repository</span>
+<span class="nc" id="L147">                .findByActionToken(token.trim())</span>
+<span class="nc" id="L148">                .map(this::toDto)</span>
+<span class="nc" id="L149">                .orElseThrow(() -&gt; new ResponseStatusException(HttpStatus.NOT_FOUND, &quot;Jeton inconnu ou expiré&quot;));</span>
+    }
+
+    @Transactional(readOnly = true)
+    public long getUnreadCount() {
+<span class="nc" id="L154">        return repository.countByIsReadFalse();</span>
+    }
+
+    @Transactional
+    public void markAsRead(Long notificationId) {
+<span class="nc" id="L159">        repository.markReadById(notificationId);</span>
+<span class="nc" id="L160">    }</span>
+
+    @Transactional
+    public void markAllAsRead() {
+<span class="nc" id="L164">        repository.markAllRead();</span>
+<span class="nc" id="L165">    }</span>
+
+    private AdminNotificationResponse toDto(AdminNotification n) {
+<span class="nc" id="L168">        return AdminNotificationResponse.builder()</span>
+<span class="nc" id="L169">                .id(n.getId())</span>
+<span class="nc" id="L170">                .type(n.getType())</span>
+<span class="nc" id="L171">                .sessionId(n.getSessionId())</span>
+<span class="nc" id="L172">                .userId(n.getUserId())</span>
+<span class="nc" id="L173">                .refUserBlockId(n.getRefUserBlockId())</span>
+<span class="nc" id="L174">                .actionToken(n.getActionToken())</span>
+<span class="nc" id="L175">                .message(n.getMessage())</span>
+<span class="nc" id="L176">                .aiDecision(n.getAiDecision())</span>
+<span class="nc" id="L177">                .aiConfidence(n.getAiConfidence())</span>
+<span class="nc" id="L178">                .read(n.isRead())</span>
+<span class="nc" id="L179">                .createdAt(n.getCreatedAt())</span>
+<span class="nc" id="L180">                .build();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>UserBlockService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">subscription</a> &gt; <a href="index.source.html" class="el_package">esprit.subscription.service</a> &gt; <span class="el_source">UserBlockService.java</span></div><h1>UserBlockService.java</h1><pre class="source lang-java linenums">package esprit.subscription.service;
+
+import esprit.subscription.entity.BlockStatus;
+import esprit.subscription.entity.UserBlock;
+import esprit.subscription.event.UserBlockedEvent;
+import esprit.subscription.repository.UserBlockRepository;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+
+@Service
+public class UserBlockService {
+
+    private final UserBlockRepository userBlockRepository;
+    private final ApplicationEventPublisher eventPublisher;
+
+<span class="fc" id="L23">    public UserBlockService(UserBlockRepository userBlockRepository, ApplicationEventPublisher eventPublisher) {</span>
+<span class="fc" id="L24">        this.userBlockRepository = userBlockRepository;</span>
+<span class="fc" id="L25">        this.eventPublisher = eventPublisher;</span>
+<span class="fc" id="L26">    }</span>
+
+    @Transactional
+    public UserBlock blockUser(String userId, String reason, String sessionPayload) {
+<span class="nc bnc" id="L30" title="All 4 branches missed.">        if (userId == null || userId.isBlank()) {</span>
+<span class="nc" id="L31">            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, &quot;userId required&quot;);</span>
+        }
+<span class="nc" id="L33">        Optional&lt;UserBlock&gt; existing = userBlockRepository.findByUserId(userId);</span>
+<span class="nc" id="L34">        LocalDateTime now = LocalDateTime.now();</span>
+<span class="nc bnc" id="L35" title="All 2 branches missed.">        if (existing.isPresent()) {</span>
+<span class="nc" id="L36">            UserBlock ub = existing.get();</span>
+<span class="nc" id="L37">            ub.setFailureCount(ub.getFailureCount() + 1);</span>
+<span class="nc bnc" id="L38" title="All 2 branches missed.">            ub.setBlockReason(reason != null ? reason : ub.getBlockReason());</span>
+<span class="nc" id="L39">            ub.setLastSessionPayload(sessionPayload);</span>
+<span class="nc" id="L40">            ub.setStatus(BlockStatus.BLOCKED);</span>
+<span class="nc" id="L41">            ub.setBlockedAt(now);</span>
+<span class="nc" id="L42">            UserBlock saved = userBlockRepository.save(ub);</span>
+<span class="nc" id="L43">            eventPublisher.publishEvent(new UserBlockedEvent(saved.getUserId(), reason, saved.getId()));</span>
+<span class="nc" id="L44">            return saved;</span>
+        }
+<span class="nc" id="L46">        UserBlock ub = UserBlock.builder()</span>
+<span class="nc" id="L47">                .userId(userId)</span>
+<span class="nc bnc" id="L48" title="All 2 branches missed.">                .blockReason(reason != null ? reason : &quot;Échec vérification liveness&quot;)</span>
+<span class="nc" id="L49">                .blockedAt(now)</span>
+<span class="nc" id="L50">                .status(BlockStatus.BLOCKED)</span>
+<span class="nc" id="L51">                .failureCount(1)</span>
+<span class="nc" id="L52">                .lastSessionPayload(sessionPayload)</span>
+<span class="nc" id="L53">                .build();</span>
+<span class="nc" id="L54">        UserBlock saved = userBlockRepository.save(ub);</span>
+<span class="nc" id="L55">        eventPublisher.publishEvent(new UserBlockedEvent(saved.getUserId(), reason, saved.getId()));</span>
+<span class="nc" id="L56">        return saved;</span>
+    }
+
+    /**
+     * True when the account is fully locked (no liveness challenge).
+     * {@link BlockStatus#PENDING_REVIEW} users may still complete a re-verification session.
+     */
+    @Transactional(readOnly = true)
+    public boolean isLivenessForbidden(String userId) {
+<span class="nc bnc" id="L65" title="All 4 branches missed.">        if (userId == null || userId.isBlank()) return false;</span>
+<span class="nc" id="L66">        return userBlockRepository.findByUserId(userId)</span>
+<span class="nc bnc" id="L67" title="All 2 branches missed.">                .map(ub -&gt; ub.getStatus() == BlockStatus.BLOCKED)</span>
+<span class="nc" id="L68">                .orElse(false);</span>
+    }
+
+    /** Payment and other sensitive actions while a block or review is open. */
+    @Transactional(readOnly = true)
+    public boolean isPaymentBlocked(String userId) {
+<span class="nc bnc" id="L74" title="All 4 branches missed.">        if (userId == null || userId.isBlank()) return false;</span>
+<span class="nc" id="L75">        return userBlockRepository.findByUserId(userId)</span>
+<span class="nc bnc" id="L76" title="All 4 branches missed.">                .map(ub -&gt; ub.getStatus() == BlockStatus.BLOCKED || ub.getStatus() == BlockStatus.PENDING_REVIEW)</span>
+<span class="nc" id="L77">                .orElse(false);</span>
+    }
+
+    @Transactional
+    public UserBlock requestUnlock(String userId) {
+<span class="nc" id="L82">        UserBlock ub = userBlockRepository.findByUserId(userId)</span>
+<span class="nc" id="L83">                .orElseThrow(() -&gt; new ResponseStatusException(HttpStatus.NOT_FOUND, &quot;Aucun blocage enregistré&quot;));</span>
+<span class="nc bnc" id="L84" title="All 2 branches missed.">        if (ub.getStatus() != BlockStatus.BLOCKED) {</span>
+<span class="nc" id="L85">            throw new ResponseStatusException(HttpStatus.CONFLICT, &quot;Le compte n'est pas en attente de déblocage utilisateur&quot;);</span>
+        }
+<span class="nc" id="L87">        ub.setStatus(BlockStatus.PENDING_REVIEW);</span>
+<span class="nc" id="L88">        return userBlockRepository.save(ub);</span>
+    }
+
+    @Transactional
+    public UserBlock approveUnlock(Long blockId, String adminUsername) {
+<span class="nc" id="L93">        UserBlock ub = userBlockRepository.findById(blockId)</span>
+<span class="nc" id="L94">                .orElseThrow(() -&gt; new ResponseStatusException(HttpStatus.NOT_FOUND, &quot;Blocage introuvable&quot;));</span>
+<span class="nc" id="L95">        ub.setStatus(BlockStatus.UNLOCKED);</span>
+<span class="nc" id="L96">        ub.setUnlockedAt(LocalDateTime.now());</span>
+<span class="nc bnc" id="L97" title="All 2 branches missed.">        ub.setUnlockedBy(adminUsername != null ? adminUsername : &quot;admin&quot;);</span>
+<span class="nc" id="L98">        return userBlockRepository.save(ub);</span>
+    }
+
+    @Transactional
+    public UserBlock rejectUnlock(Long blockId, String adminUsername, String reason) {
+<span class="nc" id="L103">        UserBlock ub = userBlockRepository.findById(blockId)</span>
+<span class="nc" id="L104">                .orElseThrow(() -&gt; new ResponseStatusException(HttpStatus.NOT_FOUND, &quot;Blocage introuvable&quot;));</span>
+<span class="nc" id="L105">        ub.setStatus(BlockStatus.BLOCKED);</span>
+<span class="nc bnc" id="L106" title="All 4 branches missed.">        String note = reason != null &amp;&amp; !reason.isBlank() ? reason : &quot;Demande rejetée&quot;;</span>
+<span class="nc bnc" id="L107" title="All 2 branches missed.">        ub.setBlockReason(ub.getBlockReason() + &quot; | Rejet admin (&quot; + (adminUsername != null ? adminUsername : &quot;?&quot;) + &quot;): &quot; + note);</span>
+<span class="nc" id="L108">        return userBlockRepository.save(ub);</span>
+    }
+
+    @Transactional(readOnly = true)
+    public Optional&lt;UserBlock&gt; findByUserId(String userId) {
+<span class="nc" id="L113">        return userBlockRepository.findByUserId(userId);</span>
+    }
+
+    @Transactional(readOnly = true)
+    public Optional&lt;UserBlock&gt; findById(Long id) {
+<span class="nc" id="L118">        return userBlockRepository.findById(id);</span>
+    }
+
+    @Transactional(readOnly = true)
+    public UserBlock getByIdOrThrow(Long id) {
+<span class="nc" id="L123">        return userBlockRepository.findById(id)</span>
+<span class="nc" id="L124">                .orElseThrow(() -&gt; new ResponseStatusException(HttpStatus.NOT_FOUND, &quot;Blocage introuvable&quot;));</span>
+    }
+
+    @Transactional
+    public UserBlock save(UserBlock ub) {
+<span class="nc" id="L129">        return userBlockRepository.save(ub);</span>
+    }
+
+    public List&lt;UserBlock&gt; findPendingReview() {
+<span class="nc" id="L133">        return userBlockRepository.findByStatusOrderByBlockedAtDesc(BlockStatus.PENDING_REVIEW);</span>
+    }
+
+    public List&lt;UserBlock&gt; findAllBlocks() {
+<span class="nc" id="L137">        return userBlockRepository.findAllByOrderByBlockedAtDesc();</span>
+    }
+
+    public List&lt;UserBlock&gt; historyForUser(String userId) {
+<span class="nc" id="L141">        return userBlockRepository.findByUserId(userId).map(List::of).orElseGet(List::of);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>
