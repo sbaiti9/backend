@@ -4,6 +4,8 @@ pipeline {
   environment {
     SONAR_PROJECT_KEY  = 'piBackend-Entreprise'
     SONAR_PROJECT_NAME = 'Skillio Backend — Entreprise'
+    // Repo layout on GitHub: microservices/Entreprise/pom.xml (workspace root is the git repo root)
+    MODULE_DIR = 'microservices/Entreprise'
   }
 
   stages {
@@ -11,42 +13,52 @@ pipeline {
       steps {
         checkout scm
 
-        sh '''
-          set -eu
-          pwd
-          ls -la
-          test -f pom.xml
-        '''
+        dir("${env.MODULE_DIR}") {
+          sh '''
+            set -eu
+            pwd
+            ls -la
+            test -f pom.xml
+          '''
+        }
       }
     }
 
     stage('2. Tests + JaCoCo — Entreprise') {
       steps {
-        sh 'mvn -q clean test -Dspring.profiles.active=test'
-        sh 'test -f target/site/jacoco/jacoco.xml'
+        dir("${env.MODULE_DIR}") {
+          // IMPORTANT: always point Maven at THIS module's pom.xml.
+          // If you run `mvn test` from repo root, Maven may execute tests for ALL modules (subscription/user/event...).
+          sh 'mvn -q -f pom.xml clean test -Dspring.profiles.active=test'
+          sh 'test -f target/site/jacoco/jacoco.xml'
+        }
       }
     }
 
     stage('3. Package — Entreprise') {
       steps {
-        // IMPORTANT: no `clean` here (keeps jacoco.xml for Sonar)
-        sh 'mvn -q package -DskipTests'
+        dir("${env.MODULE_DIR}") {
+          // IMPORTANT: no `clean` here (keeps jacoco.xml for Sonar)
+          sh 'mvn -q -f pom.xml package -DskipTests'
+        }
       }
     }
 
     stage('4. Analyse SonarQube (avec coverage)') {
       steps {
         withSonarQubeEnv('SonarQube') {
-          sh """
-            mvn -q sonar:sonar \\
-              -Dsonar.projectKey=${SONAR_PROJECT_KEY} \\
-              -Dsonar.projectName="${SONAR_PROJECT_NAME}" \\
-              -Dsonar.sources=src/main/java \\
-              -Dsonar.tests=src/test/java \\
-              -Dsonar.java.binaries=target/classes \\
-              -Dsonar.junit.reportPaths=target/surefire-reports \\
-              -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
-          """
+          dir("${env.MODULE_DIR}") {
+            sh """
+              mvn -q -f pom.xml sonar:sonar \\
+                -Dsonar.projectKey=${SONAR_PROJECT_KEY} \\
+                -Dsonar.projectName="${SONAR_PROJECT_NAME}" \\
+                -Dsonar.sources=src/main/java \\
+                -Dsonar.tests=src/test/java \\
+                -Dsonar.java.binaries=target/classes \\
+                -Dsonar.junit.reportPaths=target/surefire-reports \\
+                -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+            """
+          }
         }
       }
     }
@@ -63,16 +75,16 @@ pipeline {
   post {
     success {
       echo '✅ Pipeline Entreprise terminé avec succès!'
-      archiveArtifacts artifacts: 'target/*.jar',
+      archiveArtifacts artifacts: "${env.MODULE_DIR}/target/*.jar",
                        fingerprint: true,
                        allowEmptyArchive: true
-      archiveArtifacts artifacts: 'target/site/jacoco/jacoco.xml',
+      archiveArtifacts artifacts: "${env.MODULE_DIR}/target/site/jacoco/jacoco.xml",
                        fingerprint: true,
                        allowEmptyArchive: true
     }
     failure {
       echo '❌ Pipeline échoué!'
-      archiveArtifacts artifacts: 'target/site/jacoco/**',
+      archiveArtifacts artifacts: "${env.MODULE_DIR}/target/site/jacoco/**",
                        fingerprint: true,
                        allowEmptyArchive: true
     }
