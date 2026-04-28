@@ -1,0 +1,78 @@
+pipeline {
+  agent any
+
+  environment {
+    SONAR_PROJECT_KEY  = 'piBackend-User'
+    SONAR_PROJECT_NAME = 'Skillio Backend — User'
+  }
+
+  stages {
+    stage('1. Récupération du code') {
+      steps {
+        checkout scm
+
+        sh '''
+          set -eu
+          pwd
+          ls -la
+          test -f pom.xml
+        '''
+      }
+    }
+
+    stage('2. Tests + JaCoCo — User') {
+      steps {
+        sh 'mvn -q clean test -Dspring.profiles.active=test'
+        sh 'test -f target/site/jacoco/jacoco.xml'
+      }
+    }
+
+    stage('3. Package — User') {
+      steps {
+        // IMPORTANT: no `clean` here (keeps jacoco.xml for Sonar)
+        sh 'mvn -q package -DskipTests'
+      }
+    }
+
+    stage('4. Analyse SonarQube (avec coverage)') {
+      steps {
+        withSonarQubeEnv('SonarQube') {
+          sh """
+            mvn -q sonar:sonar \\
+              -Dsonar.projectKey=${SONAR_PROJECT_KEY} \\
+              -Dsonar.projectName="${SONAR_PROJECT_NAME}" \\
+              -Dsonar.sources=src/main/java \\
+              -Dsonar.tests=src/test/java \\
+              -Dsonar.java.binaries=target/classes \\
+              -Dsonar.junit.reportPaths=target/surefire-reports \\
+              -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+          """
+        }
+      }
+    }
+
+    stage('5. Quality Gate') {
+      steps {
+        timeout(time: 5, unit: 'MINUTES') {
+          waitForQualityGate abortPipeline: false
+        }
+      }
+    }
+  }
+
+  post {
+    success {
+      archiveArtifacts artifacts: 'target/*.jar',
+                       fingerprint: true,
+                       allowEmptyArchive: true
+      archiveArtifacts artifacts: 'target/site/jacoco/jacoco.xml',
+                       fingerprint: true,
+                       allowEmptyArchive: true
+    }
+    failure {
+      archiveArtifacts artifacts: 'target/site/jacoco/**',
+                       fingerprint: true,
+                       allowEmptyArchive: true
+    }
+  }
+}
