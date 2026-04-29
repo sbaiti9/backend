@@ -77,6 +77,14 @@ pipeline {
       archiveArtifacts artifacts: "${env.MODULE_DIR}/target/site/jacoco/jacoco.xml",
                        fingerprint: true,
                        allowEmptyArchive: true
+
+      script {
+        def cdJob = "${env.JOB_NAME}-cd"
+        echo "Triggering CD pipeline: ${cdJob}"
+        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+          build job: cdJob, wait: false, propagate: false
+        }
+      }
     }
     failure {
       archiveArtifacts artifacts: "${env.MODULE_DIR}/target/site/jacoco/**",

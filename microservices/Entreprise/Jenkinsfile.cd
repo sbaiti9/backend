@@ -1,0 +1,80 @@
+pipeline {
+  agent any
+
+  environment {
+    MODULE_DIR   = 'microservices/Entreprise'
+    IMAGE_REPO   = 'wissemsbaiti/skillio-entreprise'
+    K8S_NS       = 'skillio'
+    DEPLOY_NAME  = 'entreprise'
+    CONTAINER    = 'entreprise'
+  }
+
+  parameters {
+    booleanParam(name: 'DEPLOY', defaultValue: true, description: 'Deploy to Kubernetes after pushing image')
+    booleanParam(name: 'INSTALL_OBSERVABILITY', defaultValue: false, description: 'Install/upgrade Prometheus+Grafana (kube-prometheus-stack) in the cluster')
+    string(name: 'IMAGE_TAG', defaultValue: '', description: 'Optional Docker tag override (default: short git SHA)')
+  }
+
+  stages {
+    stage('1. Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('2. Docker build & push') {
+      steps {
+        script {
+          def sha = (env.GIT_COMMIT ?: '').take(7)
+          def tag = params.IMAGE_TAG?.trim()
+          if (!tag) { tag = sha ?: 'dev' }
+          env.IMAGE_FULL = "${env.IMAGE_REPO}:${tag}"
+        }
+
+        dir("${env.MODULE_DIR}") {
+          withCredentials([usernamePassword(credentialsId: 'dockerhub-wissemsbaiti', usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_PASS')]) {
+            sh '''
+              set -eu
+              echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USER" --password-stdin
+              docker build -t "$IMAGE_FULL" .
+              docker push "$IMAGE_FULL"
+            '''
+          }
+        }
+      }
+    }
+
+    stage('3. Install/Upgrade Observability (optional)') {
+      when { expression { return params.INSTALL_OBSERVABILITY } }
+      steps {
+        withCredentials([file(credentialsId: 'kubeconfig-skillio', variable: 'KUBECONFIG')]) {
+          sh '''
+            set -eu
+            kubectl get ns monitoring >/dev/null 2>&1 || kubectl create ns monitoring
+            helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+            helm repo update
+            helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack -n monitoring
+          '''
+        }
+      }
+    }
+
+    stage('4. Deploy to Kubernetes') {
+      when { expression { return params.DEPLOY } }
+      steps {
+        withCredentials([file(credentialsId: 'kubeconfig-skillio', variable: 'KUBECONFIG')]) {
+          dir("${env.MODULE_DIR}") {
+            sh '''
+              set -eu
+              kubectl get ns "$K8S_NS" >/dev/null 2>&1 || kubectl create ns "$K8S_NS"
+              kubectl -n "$K8S_NS" apply -f k8s/
+              kubectl -n "$K8S_NS" set image deployment/"$DEPLOY_NAME" "$CONTAINER"="$IMAGE_FULL"
+              kubectl -n "$K8S_NS" rollout status deployment/"$DEPLOY_NAME" --timeout=180s
+            '''
+          }
+        }
+      }
+    }
+  }
+}
+

@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: entreprise
+  labels:
+    app: entreprise
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: entreprise
+  template:
+    metadata:
+      labels:
+        app: entreprise
+    spec:
+      containers:
+        - name: entreprise
+          image: wissemsbaiti/skillio-entreprise:dev
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SERVER_PORT
+              value: "8080"
+
