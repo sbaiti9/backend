@@ -7,12 +7,13 @@ pipeline {
     K8S_NS       = 'skillio'
     DEPLOY_NAME  = 'entreprise'
     CONTAINER    = 'entreprise'
+    APP_LABEL    = 'entreprise'
   }
 
   parameters {
     booleanParam(name: 'DEPLOY', defaultValue: true, description: 'Deploy to Kubernetes after pushing image')
-    booleanParam(name: 'INSTALL_OBSERVABILITY', defaultValue: false, description: 'Install/upgrade Prometheus+Grafana (kube-prometheus-stack) in the cluster')
-    string(name: 'IMAGE_TAG', defaultValue: '', description: 'Optional Docker tag override (default: short git SHA)')
+    booleanParam(name: 'INSTALL_OBSERVABILITY', defaultValue: false, description: 'Install/upgrade Prometheus+Grafana (kube-prometheus-stack)')
+    string(name: 'IMAGE_TAG', defaultValue: '', description: 'Docker tag override (default: BUILD_NUMBER)')
   }
 
   stages {
@@ -22,36 +23,49 @@ pipeline {
       }
     }
 
-    stage('2. Docker build & push') {
+    stage('2. Docker build') {
       steps {
         script {
-          def sha = (env.GIT_COMMIT ?: '').take(7)
           def tag = params.IMAGE_TAG?.trim()
-          if (!tag) { tag = sha ?: 'dev' }
+          if (!tag) {
+            tag = "${BUILD_NUMBER}"
+          }
+          env.IMAGE_TAG_RESOLVED = tag
           env.IMAGE_FULL = "${env.IMAGE_REPO}:${tag}"
         }
 
         dir("${env.MODULE_DIR}") {
-          withCredentials([usernamePassword(credentialsId: 'dockerhub-wissemsbaiti', usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_PASS')]) {
-            sh '''
-              set -eu
-              echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USER" --password-stdin
-              docker build -t "$IMAGE_FULL" .
-              docker push "$IMAGE_FULL"
-            '''
-          }
+          sh '''
+            set -eu
+            docker build -t "$IMAGE_FULL" .
+            docker tag "$IMAGE_FULL" "$IMAGE_REPO:latest"
+          '''
         }
       }
     }
 
-    stage('3. Install/Upgrade Observability (optional)') {
+    stage('3. Push Docker Hub') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'dockerhub-wissemsbaiti', usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_PASS')]) {
+          sh '''
+            set -eu
+            echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USER" --password-stdin
+            docker push "$IMAGE_FULL"
+            docker push "$IMAGE_REPO:latest"
+            docker logout || true
+          '''
+        }
+      }
+    }
+
+    stage('4. Observability (optional)') {
       when { expression { return params.INSTALL_OBSERVABILITY } }
       steps {
         withCredentials([file(credentialsId: 'kubeconfig-skillio', variable: 'KUBECONFIG')]) {
           sh '''
             set -eu
             kubectl get ns monitoring >/dev/null 2>&1 || kubectl create ns monitoring
-            helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+            helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || true
             helm repo update
             helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack -n monitoring
           '''
@@ -59,7 +73,7 @@ pipeline {
       }
     }
 
-    stage('4. Deploy to Kubernetes') {
+    stage('5. Deploy Kubernetes') {
       when { expression { return params.DEPLOY } }
       steps {
         withCredentials([file(credentialsId: 'kubeconfig-skillio', variable: 'KUBECONFIG')]) {
@@ -68,13 +82,71 @@ pipeline {
               set -eu
               kubectl get ns "$K8S_NS" >/dev/null 2>&1 || kubectl create ns "$K8S_NS"
               kubectl -n "$K8S_NS" apply -f k8s/
-              kubectl -n "$K8S_NS" set image deployment/"$DEPLOY_NAME" "$CONTAINER"="$IMAGE_FULL"
-              kubectl -n "$K8S_NS" rollout status deployment/"$DEPLOY_NAME" --timeout=180s
             '''
+
+            script {
+              def rc = sh(
+                script: """
+                  set -eu
+                  kubectl -n ${env.K8S_NS} set image deployment/${env.DEPLOY_NAME} ${env.CONTAINER}=${env.IMAGE_FULL}
+                  kubectl -n ${env.K8S_NS} rollout status deployment/${env.DEPLOY_NAME} --timeout=600s
+                """,
+                returnStatus: true
+              )
+
+              if (rc != 0) {
+                sh """
+                  echo '=== DEPLOYMENT STATUS ==='
+                  kubectl -n ${env.K8S_NS} get deployment ${env.DEPLOY_NAME} || true
+                  echo '=== PODS ==='
+                  kubectl -n ${env.K8S_NS} get pods -l app=${env.APP_LABEL} || true
+                  echo '=== POD LOGS ==='
+                  kubectl -n ${env.K8S_NS} logs -l app=${env.APP_LABEL} --tail=80 || true
+                  echo '=== POD DESCRIBE ==='
+                  kubectl -n ${env.K8S_NS} describe pods -l app=${env.APP_LABEL} || true
+                """
+                error('Kubernetes rollout failed')
+              }
+            }
           }
+        }
+      }
+    }
+
+    stage('6. Vérification du déploiement') {
+      when { expression { return params.DEPLOY } }
+      steps {
+        withCredentials([file(credentialsId: 'kubeconfig-skillio', variable: 'KUBECONFIG')]) {
+          sh """
+            set -eu
+            echo '=== PODS ==='
+            kubectl get pods -n ${env.K8S_NS}
+            echo '=== SERVICES ==='
+            kubectl get svc -n ${env.K8S_NS}
+            echo '=== DEPLOYMENTS ==='
+            kubectl get deployments -n ${env.K8S_NS}
+          """
+        }
+      }
+    }
+  }
+
+  post {
+    success {
+      echo "✅ CD terminé — ${env.IMAGE_FULL}"
+    }
+    failure {
+      echo '❌ CD échoué — voir logs ci-dessus.'
+    }
+    always {
+      script {
+        if (env.IMAGE_FULL) {
+          sh """
+            docker rmi ${env.IMAGE_FULL} || true
+            docker rmi ${env.IMAGE_REPO}:latest || true
+          """
         }
       }
     }
   }
 }
-
