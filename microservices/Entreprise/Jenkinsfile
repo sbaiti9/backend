@@ -63,10 +63,19 @@ pipeline {
       }
     }
 
-    stage('5. Quality Gate') {
+    stage('5. Trigger CD') {
       steps {
-        timeout(time: 5, unit: 'MINUTES') {
-          waitForQualityGate abortPipeline: false
+        script {
+          def cdJob = "${env.JOB_NAME}-CD"
+          echo "Triggering CD pipeline: ${cdJob}"
+          build job: cdJob,
+                wait: false,
+                propagate: false,
+                parameters: [
+                  booleanParam(name: 'DEPLOY', value: true),
+                  booleanParam(name: 'INSTALL_OBSERVABILITY', value: false),
+                  string(name: 'IMAGE_TAG', value: "${env.BUILD_NUMBER}")
+                ]
         }
       }
     }
@@ -81,14 +90,6 @@ pipeline {
       archiveArtifacts artifacts: "${env.MODULE_DIR}/target/site/jacoco/jacoco.xml",
                        fingerprint: true,
                        allowEmptyArchive: true
-
-      script {
-        def cdJob = "${env.JOB_NAME}-cd"
-        echo "Triggering CD pipeline: ${cdJob}"
-        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-          build job: cdJob, wait: false, propagate: false
-        }
-      }
     }
     failure {
       echo '❌ Pipeline échoué!'
