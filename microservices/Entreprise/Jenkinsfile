@@ -4,50 +4,44 @@ pipeline {
   environment {
     SONAR_PROJECT_KEY  = 'piBackend-Entreprise'
     SONAR_PROJECT_NAME = 'Skillio Backend — Entreprise'
-    // Repo layout on GitHub: microservices/Entreprise/pom.xml (workspace root is the git repo root)
-    MODULE_DIR = 'microservices/Entreprise'
+    MODULE_DIR         = 'microservices/Entreprise'
+    SONAR_HOST_URL     = 'http://192.168.33.10:9000'
   }
 
   stages {
-    stage('1. Récupération du code') {
+    stage('1. Récupération du code depuis Git') {
       steps {
+        echo 'Récupération du dépôt (checkout SCM)...'
         checkout scm
 
         dir("${env.MODULE_DIR}") {
           sh '''
             set -eu
             pwd
-            ls -la
             test -f pom.xml
           '''
         }
+        echo 'Code récupéré avec succès.'
       }
     }
 
-    stage('2. Tests + JaCoCo — Entreprise') {
+    stage('2. Nettoyage et Compilation') {
       steps {
+        echo 'Nettoyage et compilation du projet Maven...'
+        echo 'Exécution des tests et génération du rapport JaCoCo...'
         dir("${env.MODULE_DIR}") {
-          // IMPORTANT: always point Maven at THIS module's pom.xml.
-          // If you run `mvn test` from repo root, Maven may execute tests for ALL modules (subscription/user/event...).
           sh 'mvn -q -f pom.xml clean test -Dspring.profiles.active=test'
           sh 'test -f target/site/jacoco/jacoco.xml'
         }
+        echo 'Nettoyage, compilation et tests terminés.'
       }
     }
 
-    stage('3. Package — Entreprise') {
+    stage('3. Analyse SonarQube') {
       steps {
+        echo 'Analyse de la qualité du code avec SonarQube...'
         dir("${env.MODULE_DIR}") {
-          // IMPORTANT: no `clean` here (keeps jacoco.xml for Sonar)
-          sh 'mvn -q -f pom.xml package -DskipTests'
-        }
-      }
-    }
-
-    stage('4. Analyse SonarQube (avec coverage)') {
-      steps {
-        withSonarQubeEnv('SonarQube') {
-          dir("${env.MODULE_DIR}") {
+          withSonarQubeEnv('SonarQube') {
             sh """
               mvn -q -f pom.xml sonar:sonar \\
                 -Dsonar.projectKey=${SONAR_PROJECT_KEY} \\
@@ -60,14 +54,29 @@ pipeline {
             """
           }
         }
+        echo "Analyse SonarQube terminée — consultez les résultats sur: ${SONAR_HOST_URL}/dashboard?id=${SONAR_PROJECT_KEY}"
       }
     }
 
-    stage('5. Trigger CD') {
+    stage('4. Génération du fichier JAR') {
+      steps {
+        echo 'Génération du fichier JAR...'
+        dir("${env.MODULE_DIR}") {
+          sh 'mvn -q -f pom.xml package -DskipTests'
+        }
+        echo 'Archivage du JAR généré...'
+        archiveArtifacts artifacts: "${env.MODULE_DIR}/target/*.jar",
+                         fingerprint: true,
+                         allowEmptyArchive: false
+        echo 'Fichier JAR généré avec succès.'
+      }
+    }
+
+    stage('5. Lancer partie CD') {
       steps {
         script {
           def cdJob = "${env.JOB_NAME}-CD"
-          echo "Triggering CD pipeline: ${cdJob}"
+          echo "Lancement du pipeline CD: ${cdJob}"
           build job: cdJob,
                 wait: false,
                 propagate: false,
@@ -83,16 +92,11 @@ pipeline {
 
   post {
     success {
-      echo '✅ Pipeline Entreprise terminé avec succès!'
-      archiveArtifacts artifacts: "${env.MODULE_DIR}/target/*.jar",
-                       fingerprint: true,
-                       allowEmptyArchive: true
       archiveArtifacts artifacts: "${env.MODULE_DIR}/target/site/jacoco/jacoco.xml",
                        fingerprint: true,
                        allowEmptyArchive: true
     }
     failure {
-      echo '❌ Pipeline échoué!'
       archiveArtifacts artifacts: "${env.MODULE_DIR}/target/site/jacoco/**",
                        fingerprint: true,
                        allowEmptyArchive: true

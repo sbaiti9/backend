@@ -17,14 +17,17 @@ pipeline {
   }
 
   stages {
-    stage('1. Checkout') {
+    stage('1. Récupération du code depuis Git') {
       steps {
+        echo 'Récupération du dépôt (checkout SCM)...'
         checkout scm
+        echo 'Code récupéré avec succès.'
       }
     }
 
-    stage('2. Docker build') {
+    stage('2. Construction de l\'image Docker') {
       steps {
+        echo 'Construction de l\'image Docker...'
         script {
           def tag = params.IMAGE_TAG?.trim()
           if (!tag) {
@@ -44,8 +47,9 @@ pipeline {
       }
     }
 
-    stage('3. Push Docker Hub') {
+    stage('3. Publication sur Docker Hub') {
       steps {
+        echo 'Connexion à Docker Hub et envoi des images...'
         withCredentials([usernamePassword(credentialsId: 'dockerhub-wissemsbaiti', usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_PASS')]) {
           sh '''
             set -eu
@@ -58,9 +62,10 @@ pipeline {
       }
     }
 
-    stage('4. Observability (optional)') {
+    stage('4. Observabilité (optionnel)') {
       when { expression { return params.INSTALL_OBSERVABILITY } }
       steps {
+        echo 'Installation / mise à jour Prometheus et Grafana (Helm)...'
         withCredentials([file(credentialsId: 'kubeconfig-skillio', variable: 'KUBECONFIG')]) {
           sh '''
             set -eu
@@ -73,9 +78,10 @@ pipeline {
       }
     }
 
-    stage('5. Deploy Kubernetes') {
+    stage('5. Déploiement Kubernetes') {
       when { expression { return params.DEPLOY } }
       steps {
+        echo 'Déploiement des manifests et mise à jour de l\'image...'
         withCredentials([file(credentialsId: 'kubeconfig-skillio', variable: 'KUBECONFIG')]) {
           dir("${env.MODULE_DIR}") {
             sh '''
@@ -116,6 +122,7 @@ pipeline {
     stage('6. Vérification du déploiement') {
       when { expression { return params.DEPLOY } }
       steps {
+        echo 'Contrôle des pods, services et déploiements...'
         withCredentials([file(credentialsId: 'kubeconfig-skillio', variable: 'KUBECONFIG')]) {
           sh """
             set -eu
@@ -133,10 +140,10 @@ pipeline {
 
   post {
     success {
-      echo "✅ CD terminé — ${env.IMAGE_FULL}"
+      echo "CD terminé — image: ${env.IMAGE_FULL}"
     }
     failure {
-      echo '❌ CD échoué — voir logs ci-dessus.'
+      echo 'CD échoué — voir les logs ci-dessus.'
     }
     always {
       script {
