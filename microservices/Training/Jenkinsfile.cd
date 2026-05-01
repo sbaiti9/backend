@@ -2,18 +2,27 @@ pipeline {
   agent any
 
   environment {
-    MODULE_DIR   = 'microservices/Training'
-    IMAGE_REPO   = 'wissemsbaiti/skillio-training'
-    K8S_NS       = 'skillio'
-    DEPLOY_NAME  = 'training'
-    CONTAINER    = 'training'
-    APP_LABEL    = 'training'
+    MODULE_DIR             = 'microservices/Training'
+    PROJECT_DIR            = 'microservices/Training'
+    IMAGE_REPO             = 'wissemsbaiti/skillio-training'
+    DOCKER_HUB_CREDENTIALS = 'dockerhub-wissemsbaiti'
+    KUBECONFIG_CREDENTIALS = 'kubeconfig-skillio'
+    K8S_NS                 = 'skillio'
+    DEPLOY_NAME            = 'training'
+    CONTAINER              = 'training'
+    APP_LABEL              = 'training'
+    APP_NODE_PORT          = '30080'
+    NOTIFY_EMAIL           = 'sbaitiwissem0@gmail.com'
+    SONAR_HOST_URL         = 'http://192.168.33.10:9000'
+    SONAR_PROJECT_KEY      = 'piBackend-Training'
+    DOCKER_HUB_REPO_WEB    = 'https://hub.docker.com/r/wissemsbaiti/skillio-training'
   }
 
   parameters {
-    booleanParam(name: 'DEPLOY', defaultValue: true, description: 'Deploy to Kubernetes after pushing image')
-    booleanParam(name: 'INSTALL_OBSERVABILITY', defaultValue: false, description: 'Install/upgrade Prometheus+Grafana (kube-prometheus-stack)')
-    string(name: 'IMAGE_TAG', defaultValue: '', description: 'Docker tag override (default: BUILD_NUMBER)')
+    booleanParam(name: 'DEPLOY', defaultValue: true, description: 'Déployer sur Kubernetes')
+    booleanParam(name: 'INSTALL_OBSERVABILITY', defaultValue: false, description: 'Installer / mettre à jour Prometheus + Grafana (Helm, ns monitoring)')
+    booleanParam(name: 'DEPLOY_MYSQL', defaultValue: false, description: 'Déployer MySQL partagé (première fois sur le cluster — Secret mysql-secret)')
+    string(name: 'IMAGE_TAG', defaultValue: '', description: 'Tag Docker (défaut: BUILD_NUMBER)')
   }
 
   stages {
@@ -21,76 +30,119 @@ pipeline {
       steps {
         echo 'Récupération du dépôt (checkout SCM)...'
         checkout scm
+        script {
+          if (fileExists("${WORKSPACE}/Backend/Backend/k8s-shared/kube-prometheus-stack-values.yaml")) {
+            env.SHARED_K8S_DIR = "${WORKSPACE}/Backend/Backend/k8s-shared"
+          } else {
+            env.SHARED_K8S_DIR = "${WORKSPACE}/k8s-shared"
+          }
+        }
+        echo "Manifests partagés (MySQL / Helm): ${env.SHARED_K8S_DIR}"
         echo 'Code récupéré avec succès.'
       }
     }
 
-    stage('2. Construction de l\'image Docker') {
+    stage('5. Docker Build & Push') {
       steps {
-        echo 'Construction de l\'image Docker...'
-        script {
-          def tag = params.IMAGE_TAG?.trim()
-          if (!tag) {
-            tag = "${BUILD_NUMBER}"
+        echo 'Construction et push de l\'image Docker...'
+        dir("${env.PROJECT_DIR}") {
+          script {
+            def tag = params.IMAGE_TAG?.trim()
+            if (!tag) {
+              tag = "${BUILD_NUMBER}"
+            }
+            env.DOCKER_IMAGE_TAG = tag
+            env.DOCKER_IMAGE_NAME = env.IMAGE_REPO
+            env.IMAGE_FULL = "${env.IMAGE_REPO}:${tag}"
+
+            echo '🐳 Construction de l\'image Docker...'
+            sh """
+              set -eu
+              docker build -t ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG} .
+              docker tag ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG} ${env.DOCKER_IMAGE_NAME}:latest
+            """
+            echo '✅ Image Docker construite avec succès'
+
+            echo '📤 Push de l\'image sur Docker Hub...'
+            withCredentials([usernamePassword(
+              credentialsId: "${DOCKER_HUB_CREDENTIALS}",
+              usernameVariable: 'DOCKER_USER',
+              passwordVariable: 'DOCKER_PASS'
+            )]) {
+              retry(3) {
+                timeout(time: 10, unit: 'MINUTES') {
+                  sh '''
+                    set -eu
+                    echo "Tentative de connexion à Docker Hub..."
+                    echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+
+                    echo "Push image avec tag courant..."
+                    docker push "${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}"
+                    echo "Push tag latest..."
+                    docker push "${DOCKER_IMAGE_NAME}:latest"
+                    docker logout || true
+                    echo "✅ Push terminé avec succès"
+                  '''
+                }
+              }
+            }
           }
-          env.IMAGE_TAG_RESOLVED = tag
-          env.IMAGE_FULL = "${env.IMAGE_REPO}:${tag}"
         }
-
-        dir("${env.MODULE_DIR}") {
-          sh '''
-            set -eu
-            docker build -t "$IMAGE_FULL" .
-            docker tag "$IMAGE_FULL" "$IMAGE_REPO:latest"
-          '''
-        }
+        echo '✅ Image Docker construite et poussée sur Docker Hub avec succès'
       }
     }
 
-    stage('3. Publication sur Docker Hub') {
-      steps {
-        echo 'Connexion à Docker Hub et envoi des images...'
-        withCredentials([usernamePassword(credentialsId: 'dockerhub-wissemsbaiti', usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_PASS')]) {
-          sh '''
-            set -eu
-            echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USER" --password-stdin
-            docker push "$IMAGE_FULL"
-            docker push "$IMAGE_REPO:latest"
-            docker logout || true
-          '''
-        }
-      }
-    }
-
-    stage('4. Observabilité (optionnel)') {
-      when { expression { return params.INSTALL_OBSERVABILITY } }
-      steps {
-        echo 'Installation / mise à jour Prometheus et Grafana (Helm)...'
-        withCredentials([file(credentialsId: 'kubeconfig-skillio', variable: 'KUBECONFIG')]) {
-          sh '''
-            set -eu
-            kubectl get ns monitoring >/dev/null 2>&1 || kubectl create ns monitoring
-            helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || true
-            helm repo update
-            helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack -n monitoring
-          '''
-        }
-      }
-    }
-
-    stage('5. Déploiement Kubernetes') {
+    stage('6. Deploy MySQL & Spring Boot on K8s') {
       when { expression { return params.DEPLOY } }
       steps {
-        echo 'Déploiement des manifests et mise à jour de l\'image...'
-        withCredentials([file(credentialsId: 'kubeconfig-skillio', variable: 'KUBECONFIG')]) {
-          dir("${env.MODULE_DIR}") {
-            sh '''
-              set -eu
-              kubectl get ns "$K8S_NS" >/dev/null 2>&1 || kubectl create ns "$K8S_NS"
-              kubectl -n "$K8S_NS" apply -f k8s/
-            '''
+        echo '📦 Déploiement MySQL & Spring Boot sur Kubernetes...'
+        withCredentials([file(credentialsId: "${env.KUBECONFIG_CREDENTIALS}", variable: 'KUBECONFIG')]) {
+          script {
+            def sharedDir = env.SHARED_K8S_DIR ?: "${env.WORKSPACE}/k8s-shared"
 
-            script {
+            if (params.INSTALL_OBSERVABILITY) {
+              echo '📈 Installation / mise à jour kube-prometheus-stack (Prometheus + Grafana)...'
+              sh """
+                set -eu
+                kubectl get ns monitoring >/dev/null 2>&1 || kubectl create ns monitoring
+                helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || true
+                helm repo update
+                helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \\
+                  -n monitoring \\
+                  --create-namespace \\
+                  -f "${sharedDir}/kube-prometheus-stack-values.yaml" \\
+                  --wait \\
+                  --timeout 15m
+              """
+              echo '✅ Stack observabilité prête (Grafana NodePort 30950, Prometheus 30990 — selon values).'
+            }
+
+            if (params.DEPLOY_MYSQL) {
+              echo '🗄️ Déploiement MySQL partagé...'
+              sh """
+                set -eu
+                kubectl apply -f "${sharedDir}/mysql.yaml"
+                kubectl -n ${env.K8S_NS} wait --for=condition=ready pod -l app=mysql --timeout=600s
+              """
+              echo '✅ MySQL déployé'
+            }
+
+            dir("${env.MODULE_DIR}") {
+              echo '🚀 Déploiement Spring Boot (manifests k8s)...'
+              sh """
+                set -eu
+                kubectl get ns ${env.K8S_NS} >/dev/null 2>&1 || kubectl create ns ${env.K8S_NS}
+              """
+              sh 'kubectl apply -f k8s/deployment.yaml -f k8s/service.yaml'
+              sh '''
+                set -eu
+                if kubectl get crd servicemonitors.monitoring.coreos.com >/dev/null 2>&1 && [ -f k8s/servicemonitor.yaml ]; then
+                  kubectl apply -f k8s/servicemonitor.yaml
+                else
+                  echo "ServiceMonitor ignoré (CRD absent ou pas de servicemonitor.yaml)."
+                fi
+              '''
+
               def rc = sh(
                 script: """
                   set -eu
@@ -104,35 +156,80 @@ pipeline {
                 sh """
                   echo '=== DEPLOYMENT STATUS ==='
                   kubectl -n ${env.K8S_NS} get deployment ${env.DEPLOY_NAME} || true
-                  echo '=== PODS ==='
                   kubectl -n ${env.K8S_NS} get pods -l app=${env.APP_LABEL} || true
-                  echo '=== POD LOGS ==='
                   kubectl -n ${env.K8S_NS} logs -l app=${env.APP_LABEL} --tail=80 || true
-                  echo '=== POD DESCRIBE ==='
                   kubectl -n ${env.K8S_NS} describe pods -l app=${env.APP_LABEL} || true
                 """
                 error('Kubernetes rollout failed')
               }
             }
+            echo '🎉 Déploiement Kubernetes terminé avec succès'
           }
         }
       }
     }
 
-    stage('6. Vérification du déploiement') {
+    stage('7. Vérification & Notification') {
       when { expression { return params.DEPLOY } }
       steps {
-        echo 'Contrôle des pods, services et déploiements...'
-        withCredentials([file(credentialsId: 'kubeconfig-skillio', variable: 'KUBECONFIG')]) {
-          sh """
-            set -eu
-            echo '=== PODS ==='
-            kubectl get pods -n ${env.K8S_NS}
-            echo '=== SERVICES ==='
-            kubectl get svc -n ${env.K8S_NS}
-            echo '=== DEPLOYMENTS ==='
-            kubectl get deployments -n ${env.K8S_NS}
-          """
+        echo '🔍 Vérification du déploiement...'
+        withCredentials([file(credentialsId: "${env.KUBECONFIG_CREDENTIALS}", variable: 'KUBECONFIG')]) {
+          script {
+            sh """
+              set -eu
+              echo '=== PODS (${env.K8S_NS}) ==='
+              kubectl get pods -n ${env.K8S_NS}
+              echo '=== SERVICES ==='
+              kubectl get svc -n ${env.K8S_NS}
+              echo '=== OBSERVABILITÉ (monitoring) ==='
+              kubectl get svc -n monitoring 2>/dev/null || echo "(namespace monitoring absent)"
+              echo '=== URL ACCÈS APP (NodePort ${env.APP_NODE_PORT}) ==='
+              KUBE_IP=\$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+              echo "Application (service ${env.DEPLOY_NAME}): http://\${KUBE_IP}:${env.APP_NODE_PORT}"
+              echo "Grafana (si stack installée, NodePort 30950): http://\${KUBE_IP}:30950"
+              echo "Prometheus (si stack installée, NodePort 30990): http://\${KUBE_IP}:30990"
+            """
+
+            def deploymentRunning = sh(
+              script: "kubectl get pods -n ${env.K8S_NS} 2>/dev/null | grep -c Running || echo 0",
+              returnStdout: true
+            ).trim()
+
+            def kubeIP = sh(
+              script: "kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type==\"InternalIP\")].address}'",
+              returnStdout: true
+            ).trim()
+
+            try {
+              echo '📧 Tentative d\'envoi de l\'email de notification (SMTP Jenkins)...'
+              timeout(time: 2, unit: 'MINUTES') {
+                emailext(
+                  subject: "✅ Déploiement Réussi - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                  body: """
+                    <html><body style="font-family: Arial, sans-serif;">
+                      <h2 style="color: #28a745;">Déploiement Kubernetes réussi</h2>
+                      <ul>
+                        <li><strong>Job:</strong> ${env.JOB_NAME}</li>
+                        <li><strong>Build:</strong> #${env.BUILD_NUMBER}</li>
+                        <li><strong>Image:</strong> ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}</li>
+                        <li><strong>Pods Running (approx):</strong> ${deploymentRunning}</li>
+                        <li><strong>URL app:</strong> <a href="http://${kubeIP}:${env.APP_NODE_PORT}">http://${kubeIP}:${env.APP_NODE_PORT}</a></li>
+                        <li><strong>Grafana:</strong> <a href="http://${kubeIP}:30950">http://${kubeIP}:30950</a> (mot de passe admin: voir secret kube-prometheus-stack-grafana)</li>
+                      </ul>
+                      <p><a href="${env.SONAR_HOST_URL}/dashboard?id=${env.SONAR_PROJECT_KEY}">SonarQube</a></p>
+                      <p><a href="${env.DOCKER_HUB_REPO_WEB}">Docker Hub</a></p>
+                      <p style="color:#6c757d;font-size:12px;"><a href="${env.BUILD_URL}">Logs Jenkins</a></p>
+                    </body></html>
+                  """,
+                  to: "${env.NOTIFY_EMAIL}",
+                  mimeType: 'text/html'
+                )
+              }
+              echo '✅ Email de notification envoyé (si SMTP Jenkins configuré).'
+            } catch (Exception e) {
+              echo "⚠️ Email non envoyé (configure Extended Email + SMTP Gmail dans Jenkins, sans stocker le mot de passe dans Git): ${e.message}"
+            }
+          }
         }
       }
     }
@@ -140,20 +237,37 @@ pipeline {
 
   post {
     success {
-      echo "CD terminé — image: ${env.IMAGE_FULL}"
+      echo '✅ Pipeline CD exécuté avec succès.'
+      echo "Image Docker: ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}"
+      echo "Namespace Kubernetes: ${env.K8S_NS}"
     }
     failure {
-      echo 'CD échoué — voir les logs ci-dessus.'
+      echo '❌ Le pipeline CD a échoué.'
+      script {
+        try {
+          timeout(time: 2, unit: 'MINUTES') {
+            emailext(
+              subject: "❌ Échec CD - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+              body: "<html><body><p>Échec CD — voir <a href=\"${env.BUILD_URL}console\">logs</a>.</p></body></html>",
+              to: "${env.NOTIFY_EMAIL}",
+              mimeType: 'text/html'
+            )
+          }
+        } catch (Exception e) {
+          echo "⚠️ Email d'échec non envoyé: ${e.message}"
+        }
+      }
     }
     always {
       script {
-        if (env.IMAGE_FULL) {
+        if (env.DOCKER_IMAGE_NAME && env.DOCKER_IMAGE_TAG) {
           sh """
-            docker rmi ${env.IMAGE_FULL} || true
-            docker rmi ${env.IMAGE_REPO}:latest || true
+            docker rmi ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG} || true
+            docker rmi ${env.DOCKER_IMAGE_NAME}:latest || true
           """
         }
       }
+      echo 'Nettoyage local Docker terminé.'
     }
   }
 }

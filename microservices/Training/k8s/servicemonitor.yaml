@@ -1,0 +1,18 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: training-metrics
+  namespace: skillio
+  labels:
+    app: training
+spec:
+  selector:
+    matchLabels:
+      app: training
+  namespaceSelector:
+    matchNames:
+      - skillio
+  endpoints:
+    - port: http
+      path: /actuator/prometheus
+      interval: 30s

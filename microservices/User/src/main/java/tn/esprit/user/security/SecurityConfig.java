@@ -90,6 +90,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         // AntPath (pas MvcRequestMatcher) : les POST avec variables de chemin matchent de façon fiable
                         .requestMatchers(
+                                AntPathRequestMatcher.antMatcher("/actuator/**"),
                                 AntPathRequestMatcher.antMatcher("/user/auth/**"),
                                 AntPathRequestMatcher.antMatcher("/user/internal/**"),
                                 AntPathRequestMatcher.antMatcher("/internal/**"),

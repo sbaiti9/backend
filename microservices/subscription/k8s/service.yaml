@@ -2,14 +2,15 @@ apiVersion: v1
 kind: Service
 metadata:
   name: subscription
+  namespace: skillio
   labels:
     app: subscription
 spec:
   selector:
     app: subscription
+  type: NodePort
   ports:
     - name: http
       port: 80
       targetPort: 8080
-  type: ClusterIP
-
+      nodePort: 30084

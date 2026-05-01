@@ -1,0 +1,20 @@
+# Helm kube-prometheus-stack — valeurs pour kubeadm / cluster simple.
+# helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack -n monitoring -f k8s-shared/kube-prometheus-stack-values.yaml
+prometheus:
+  service:
+    type: NodePort
+    nodePort: 30990
+  prometheusSpec:
+    scrapeInterval: 30s
+    evaluationInterval: 30s
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+grafana:
+  service:
+    type: NodePort
+    nodePort: 30950
+
+alertmanager:
+  enabled: false

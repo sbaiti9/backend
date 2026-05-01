@@ -1,0 +1,18 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: entreprise-metrics
+  namespace: skillio
+  labels:
+    app: entreprise
+spec:
+  selector:
+    matchLabels:
+      app: entreprise
+  namespaceSelector:
+    matchNames:
+      - skillio
+  endpoints:
+    - port: http
+      path: /actuator/prometheus
+      interval: 30s
