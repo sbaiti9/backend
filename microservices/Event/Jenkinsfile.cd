@@ -26,24 +26,16 @@ pipeline {
   }
 
   stages {
-    stage('1. Récupération du code depuis Git') {
+    stage('5. Docker Build & Push') {
       steps {
-        echo 'Récupération du dépôt (checkout SCM)...'
-        checkout scm
         script {
           if (fileExists("${WORKSPACE}/Backend/Backend/k8s-shared/kube-prometheus-stack-values.yaml")) {
             env.SHARED_K8S_DIR = "${WORKSPACE}/Backend/Backend/k8s-shared"
           } else {
             env.SHARED_K8S_DIR = "${WORKSPACE}/k8s-shared"
           }
+          echo "Manifests partagés (MySQL / Helm): ${env.SHARED_K8S_DIR}"
         }
-        echo "Manifests partagés (MySQL / Helm): ${env.SHARED_K8S_DIR}"
-        echo 'Code récupéré avec succès.'
-      }
-    }
-
-    stage('5. Docker Build & Push') {
-      steps {
         echo 'Construction et push de l\'image Docker...'
         dir("${env.PROJECT_DIR}") {
           script {
