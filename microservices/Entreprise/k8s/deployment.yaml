@@ -20,10 +20,10 @@ spec:
           image: wissemsbaiti/skillio-entreprise:dev
           imagePullPolicy: Always
           ports:
-            - containerPort: 8080
+            - containerPort: 8083
           env:
             - name: SERVER_PORT
-              value: "8080"
+              value: "8083"
             - name: EUREKA_CLIENT_ENABLED
               value: "false"
             - name: SPRING_DATASOURCE_URL
