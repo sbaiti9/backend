@@ -12,7 +12,7 @@ pipeline {
     CONTAINER              = 'training'
     APP_LABEL              = 'training'
     APP_NODE_PORT          = '30080'
-    NOTIFY_EMAIL           = 'sbaitiwissem0@gmail.com'
+    NOTIFY_EMAIL           = 'mariem.abiidii49@gmail.com'
     SONAR_HOST_URL         = 'http://192.168.33.10:9000'
     SONAR_PROJECT_KEY      = 'piBackend-Training'
     DOCKER_HUB_REPO_WEB    = 'https://hub.docker.com/r/wissemsbaiti/skillio-training'
