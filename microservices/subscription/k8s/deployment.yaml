@@ -27,7 +27,7 @@ spec:
             - name: EUREKA_CLIENT_ENABLED
               value: "false"
             - name: SPRING_DATASOURCE_URL
-              value: jdbc:mysql://mysql.skillio.svc.cluster.local:3306/entreprise_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+              value: jdbc:mysql://mysql.skillio.svc.cluster.local:3306/subscription_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
             - name: SPRING_DATASOURCE_USERNAME
               value: root
             - name: SPRING_DATASOURCE_PASSWORD
