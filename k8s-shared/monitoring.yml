@@ -1,0 +1,385 @@
+# Skillio — monitoring stack (namespace skillio-monitoring).
+# NodePorts: cluster requires 30000–32767. Prometheus service port 9090 (nodePort 30090); Grafana port 3000 (nodePort 30300).
+# MySQL DSN password matches default k8s-shared/mysql.yaml (change both if you rotate the secret).
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: skillio-monitoring
+  labels:
+    app.kubernetes.io/name: skillio-monitoring
+    app.kubernetes.io/part-of: skillio
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: monitoring-config
+  namespace: skillio-monitoring
+  labels:
+    app.kubernetes.io/name: monitoring
+    app.kubernetes.io/part-of: skillio
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 30s
+      evaluation_interval: 30s
+
+    scrape_configs:
+      - job_name: spring-boot-user
+        metrics_path: /actuator/prometheus
+        scheme: http
+        static_configs:
+          - targets: ["user.skillio.svc.cluster.local:80"]
+            labels:
+              microservice: user
+
+      - job_name: spring-boot-training
+        metrics_path: /actuator/prometheus
+        scheme: http
+        static_configs:
+          - targets: ["training.skillio.svc.cluster.local:80"]
+            labels:
+              microservice: training
+
+      - job_name: spring-boot-entreprise
+        metrics_path: /actuator/prometheus
+        scheme: http
+        static_configs:
+          - targets: ["entreprise.skillio.svc.cluster.local:80"]
+            labels:
+              microservice: entreprise
+
+      - job_name: spring-boot-event
+        metrics_path: /actuator/prometheus
+        scheme: http
+        static_configs:
+          - targets: ["event.skillio.svc.cluster.local:80"]
+            labels:
+              microservice: event
+
+      - job_name: spring-boot-subscription
+        metrics_path: /actuator/prometheus
+        scheme: http
+        static_configs:
+          - targets: ["subscription.skillio.svc.cluster.local:80"]
+            labels:
+              microservice: subscription
+
+      - job_name: mysql-exporter
+        static_configs:
+          - targets: ["mysql-exporter.skillio-monitoring.svc.cluster.local:9104"]
+            labels:
+              component: mysql
+
+      - job_name: nginx-frontend-exporter
+        static_configs:
+          - targets: ["nginx-exporter.skillio-monitoring.svc.cluster.local:9113"]
+            labels:
+              component: frontend-nginx
+
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus.skillio-monitoring.svc.cluster.local:9090
+        isDefault: true
+        editable: false
+        uid: prometheus
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: skillio-monitoring
+  labels:
+    app: prometheus
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: skillio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.55.1
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --web.enable-lifecycle
+            - --storage.tsdb.retention.time=15d
+          ports:
+            - name: http
+              containerPort: 9090
+          volumeMounts:
+            - name: monitoring-config
+              mountPath: /etc/prometheus/prometheus.yml
+              subPath: prometheus.yml
+              readOnly: true
+            - name: data
+              mountPath: /prometheus
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: monitoring-config
+          configMap:
+            name: monitoring-config
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: skillio-monitoring
+  labels:
+    app: prometheus
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: skillio
+spec:
+  type: NodePort
+  selector:
+    app: prometheus
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+      nodePort: 30090
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: skillio-monitoring
+  labels:
+    app: grafana
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: skillio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.4.0
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: admin
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: admin
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+          volumeMounts:
+            - name: monitoring-config
+              mountPath: /etc/grafana/provisioning/datasources/datasources.yaml
+              subPath: datasources.yaml
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /api/health/ready
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health/live
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "500m"
+              memory: 512Mi
+      volumes:
+        - name: monitoring-config
+          configMap:
+            name: monitoring-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: skillio-monitoring
+  labels:
+    app: grafana
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: skillio
+spec:
+  type: NodePort
+  selector:
+    app: grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      nodePort: 30300
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql-exporter
+  namespace: skillio-monitoring
+  labels:
+    app: mysql-exporter
+    app.kubernetes.io/name: mysql-exporter
+    app.kubernetes.io/part-of: skillio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql-exporter
+  template:
+    metadata:
+      labels:
+        app: mysql-exporter
+    spec:
+      containers:
+        - name: mysqld-exporter
+          image: prom/mysqld-exporter:v0.15.1
+          env:
+            - name: MYSQLD_EXPORTER_PASSWORD
+              value: skillio-demo-change-me
+          args:
+            - --mysqld.address=mysql.skillio.svc.cluster.local:3306
+            - --mysqld.username=root
+          ports:
+            - name: metrics
+              containerPort: 9104
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9104
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 9104
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-exporter
+  namespace: skillio-monitoring
+  labels:
+    app: mysql-exporter
+    app.kubernetes.io/name: mysql-exporter
+    app.kubernetes.io/part-of: skillio
+spec:
+  type: ClusterIP
+  selector:
+    app: mysql-exporter
+  ports:
+    - name: metrics
+      port: 9104
+      targetPort: 9104
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-exporter
+  namespace: skillio-monitoring
+  labels:
+    app: nginx-exporter
+    app.kubernetes.io/name: nginx-exporter
+    app.kubernetes.io/part-of: skillio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-exporter
+  template:
+    metadata:
+      labels:
+        app: nginx-exporter
+    spec:
+      containers:
+        - name: nginx-exporter
+          image: nginx/nginx-prometheus-exporter:1.3.0
+          args:
+            - -nginx.scrape-uri=http://frontend.skillio.svc.cluster.local/nginx_status
+          ports:
+            - name: metrics
+              containerPort: 9113
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9113
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 9113
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-exporter
+  namespace: skillio-monitoring
+  labels:
+    app: nginx-exporter
+    app.kubernetes.io/name: nginx-exporter
+    app.kubernetes.io/part-of: skillio
+spec:
+  type: ClusterIP
+  selector:
+    app: nginx-exporter
+  ports:
+    - name: metrics
+      port: 9113
+      targetPort: 9113
