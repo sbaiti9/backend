@@ -45,6 +45,7 @@ esprit\subscription\DTO\ai\InterventionDto.class
 esprit\subscription\DTO\unlockchat\UnlockChatSessionDTO.class
 esprit\subscription\DTO\unlockchat\UnlockChatSessionSummaryDTO$UnlockChatSessionSummaryDTOBuilder.class
 esprit\subscription\entity\UnlockChatMessage.class
+esprit\subscription\config\MetricsTagsConfiguration.class
 esprit\subscription\entity\BlockedPaymentAttempt.class
 esprit\subscription\repository\PromoCodeRepository.class
 esprit\subscription\service\EmailService.class
