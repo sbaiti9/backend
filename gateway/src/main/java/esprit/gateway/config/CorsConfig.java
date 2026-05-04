@@ -2,6 +2,7 @@ package esprit.gateway.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.reactive.CorsWebFilter;
 import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
@@ -14,6 +15,7 @@ import java.util.List;
  * {@code RemoveResponseHeader} puis {@code DedupeResponseHeader} dans application.yml évitent les doublons si un microservice renvoie aussi Access-Control-*.
  */
 @Configuration
+@Profile("!k8s-nginx-cors")
 public class CorsConfig {
 
     @Bean

@@ -18,6 +18,9 @@ pipeline {
     SONAR_HOST_URL         = 'http://192.168.33.10:9000'
     SONAR_PROJECT_KEY      = 'piBackend-Entreprise'
     HARBOR_REGISTRY_WEB    = 'http://192.168.33.10:8888'
+    HELM_VALUES_SED_FROM    = '  entreprise:'
+    HELM_VALUES_SED_TO      = '  event:'
+    GIT_PUSH_BRANCH         = 'main'
   }
 
   parameters {
@@ -125,12 +128,11 @@ pipeline {
             }
 
             dir("${env.MODULE_DIR}") {
-              echo '🚀 Déploiement Spring Boot (manifests k8s)...'
+              echo '🚀 Kubernetes (namespace + ServiceMonitor optionnel)...'
               sh """
                 set -eu
                 kubectl get ns ${env.K8S_NS} >/dev/null 2>&1 || kubectl create ns ${env.K8S_NS}
               """
-              sh 'kubectl apply -f k8s/deployment.yaml -f k8s/service.yaml'
               sh '''
                 set -eu
                 if kubectl get crd servicemonitors.monitoring.coreos.com >/dev/null 2>&1 && [ -f k8s/servicemonitor.yaml ]; then
@@ -139,25 +141,49 @@ pipeline {
                   echo "ServiceMonitor ignoré (CRD absent ou pas de servicemonitor.yaml)."
                 fi
               '''
+            }
 
-              def rc = sh(
-                script: """
+            echo '📝 Bump tag Helm (Argo CD) — skillio-helm/values.yaml'
+            withCredentials([usernamePassword(credentialsId: 'github-creds', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN')]) {
+              withEnv([
+                "TAG=${env.DOCKER_IMAGE_TAG}",
+                "SED_FROM=${env.HELM_VALUES_SED_FROM}",
+                "SED_TO=${env.HELM_VALUES_SED_TO}",
+                "PUSH_BRANCH=${env.GIT_PUSH_BRANCH}",
+                "DEPLOY_NAME=${env.DEPLOY_NAME}"
+              ]) {
+                sh '''#!/bin/bash
                   set -eu
-                  kubectl -n ${env.K8S_NS} set image deployment/${env.DEPLOY_NAME} ${env.CONTAINER}=${env.IMAGE_FULL}
-                  kubectl -n ${env.K8S_NS} rollout status deployment/${env.DEPLOY_NAME} --timeout=600s
-                """,
-                returnStatus: true
-              )
-
-              if (rc != 0) {
-                sh """
-                  echo '=== DEPLOYMENT STATUS ==='
-                  kubectl -n ${env.K8S_NS} get deployment ${env.DEPLOY_NAME} || true
-                  kubectl -n ${env.K8S_NS} get pods -l app=${env.APP_LABEL} || true
-                  kubectl -n ${env.K8S_NS} logs -l app=${env.APP_LABEL} --tail=80 || true
-                  kubectl -n ${env.K8S_NS} describe pods -l app=${env.APP_LABEL} || true
-                """
-                error('Kubernetes rollout failed')
+                  HELM_VALUES=""
+                  for p in "${WORKSPACE}/skillio-helm/values.yaml" "${WORKSPACE}/SKILLIO/SKILLIO/skillio-helm/values.yaml" "${WORKSPACE}/Backend/Backend/skillio-helm/values.yaml" "${WORKSPACE}/../skillio-helm/values.yaml" "${WORKSPACE}/../../skillio-helm/values.yaml"; do
+                    if [ -f "$p" ]; then HELM_VALUES="$p"; break; fi
+                  done
+                  if [ -z "${HELM_VALUES}" ]; then
+                    echo "FATAL: skillio-helm/values.yaml introuvable (WORKSPACE=${WORKSPACE})."
+                    exit 1
+                  fi
+                  cd "${WORKSPACE}"
+                  GIT_TOP="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+                  if [ -z "${GIT_TOP}" ]; then
+                    echo "FATAL: répertoire Git introuvable depuis WORKSPACE."
+                    exit 1
+                  fi
+                  cd "${GIT_TOP}"
+                  URL="$(git remote get-url origin)"
+                  REPO_PATH="$(printf '%s' "$URL" | sed -E 's#(https?://|git@)github.com[:/]##' | sed 's#\\.git$##')"
+                  sed -i "/^${SED_FROM}\$/,/^${SED_TO}\$/{
+                    /^    tag:/s/^    tag:.*/    tag: \"${TAG}\"/"
+                  }" "${HELM_VALUES}"
+                  git add "${HELM_VALUES}"
+                  if git diff --cached --quiet; then
+                    echo "Aucun changement Helm (tag déjà à jour ?)."
+                  else
+                    git -c "user.name=Jenkins Skillio" -c "user.email=jenkins@skillio.local" commit -m "ci: update ${DEPLOY_NAME} image tag to ${TAG}"
+                    git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO_PATH}.git"
+                    git push origin "HEAD:${PUSH_BRANCH}"
+                    git remote set-url origin "${URL}"
+                  fi
+                '''
               }
             }
             echo '🎉 Déploiement Kubernetes terminé avec succès'

@@ -1,0 +1,41 @@
+Harbor en HTTP sur 192.168.33.10:8888 — corriger « http: server gave HTTP response to HTTPS client »
+================================================================================
+
+Kubernetes (containerd) utilise HTTPS par défaut pour les pulls d’images. Si Harbor
+écoute en HTTP seulement, il faut déclarer ce registre comme « insecure » sur CHAQUE
+nœud du cluster (ex. VM vagrant du nœud unique).
+
+Étapes (containerd 1.4+, méthode hosts.toml recommandée) :
+
+  sudo mkdir -p /etc/containerd/certs.d/192.168.33.10:8888
+
+  sudo tee /etc/containerd/certs.d/192.168.33.10:8888/hosts.toml <<'EOF'
+server = "http://192.168.33.10:8888"
+
+[host."http://192.168.33.10:8888"]
+  capabilities = ["pull", "resolve", "push"]
+  skip_verify = true
+EOF
+
+  sudo systemctl restart containerd
+
+Ensuite, recréer les pods qui étaient en ImagePullBackOff :
+
+  kubectl delete pod -n skillio -l app=entreprise --field-selector=status.phase!=Running
+
+(ou rollout restart du deployment concerné.)
+
+Si le projet Harbor est privé, créer aussi un imagePullSecret et l’ajouter au
+deployment (imagePullSecrets) avec les mêmes identifiants que Jenkins
+(harbor-credentials).
+
+DiskPressure / ephemeral-storage
+================================
+
+Les logs montrent aussi node.kubernetes.io/disk-pressure et des pods Pending.
+Sans espace disque sur le nœud, aucun nouveau pod ne sera planifié. Libérer de
+l’espace sur la VM (containerd, logs, images inutilisées) puis vérifier :
+
+  kubectl describe nodes | grep -E DiskPressure|Taints
+
+Réf. containerd hosts : https://github.com/containerd/containerd/blob/main/docs/hosts.md

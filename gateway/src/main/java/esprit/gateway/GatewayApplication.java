@@ -20,8 +20,9 @@ public class GatewayApplication {
     /**
      * Si vide : load-balancing Eureka {@code lb://entreprise}. Sinon : URL directe (ex. {@code http://127.0.0.1:8083})
      * quand Eureka n’est pas démarré — évite le 503 « Service Unavailable » côté gateway.
-     * <p>Même logique pour {@code subscription} via {@code gateway.services.subscription-direct-uri}, et pour
-     * {@code user} via {@code gateway.services.user-direct-uri} (inscription /auth, etc.).</p>
+     * <p>Même logique pour {@code subscription} via {@code gateway.services.subscription-direct-uri}, pour
+     * {@code user} via {@code gateway.services.user-direct-uri}, et pour {@code event} / {@code Training} via
+     * {@code gateway.services.event-direct-uri} et {@code gateway.services.training-direct-uri} (Kubernetes sans Eureka).</p>
      * <p>Route {@code /sub/unlock-chat/**} → subscription <strong>sans</strong> réécriture : le contrôleur expose déjà
      * {@code @RequestMapping("/sub/unlock-chat")} en plus de {@code /api/unlock-chat}. Éviter {@code RewritePath}
      * ici : selon les versions, la réécriture peut casser les POST (404 sur grant/approve alors que les GET passent).</p>
@@ -31,11 +32,15 @@ public class GatewayApplication {
             RouteLocatorBuilder builder,
             @Value("${gateway.services.entreprise-direct-uri:}") String entrepriseDirectUri,
             @Value("${gateway.services.subscription-direct-uri:}") String subscriptionDirectUri,
-            @Value("${gateway.services.user-direct-uri:}") String userDirectUri) {
+            @Value("${gateway.services.user-direct-uri:}") String userDirectUri,
+            @Value("${gateway.services.event-direct-uri:}") String eventDirectUri,
+            @Value("${gateway.services.training-direct-uri:}") String trainingDirectUri) {
 
         String entrepriseTarget = resolveHttpOrLbUri(entrepriseDirectUri, "lb://entreprise");
         String subscriptionTarget = resolveHttpOrLbUri(subscriptionDirectUri, "lb://subscription");
         String userTarget = resolveHttpOrLbUri(userDirectUri, "lb://user");
+        String eventTarget = resolveHttpOrLbUri(eventDirectUri, "lb://event");
+        String trainingTarget = resolveHttpOrLbUri(trainingDirectUri, "lb://Training");
 
         // URIs lb://* must match Eureka `spring.application.name` exactly (case-sensitive).
         // Plus spécifique en premier : /sub/unlock-chat/** réécrit avant la route générale /sub/**.
@@ -61,14 +66,14 @@ public class GatewayApplication {
                         .uri(subscriptionTarget))
 
                 .route("event", r -> r.path("/event/**")
-                        .uri("lb://event"))
+                        .uri(eventTarget))
 
                 .route("training-uploads", r -> r.path("/uploads/**")
-                        .uri("lb://Training"))
+                        .uri(trainingTarget))
                 .route("training-reviews", r -> r.path("/reviews/**")
-                        .uri("lb://Training"))
+                        .uri(trainingTarget))
                 .route("training-trainings", r -> r.path("/trainings/**")
-                        .uri("lb://Training"))
+                        .uri(trainingTarget))
 
                 .build();
     }
