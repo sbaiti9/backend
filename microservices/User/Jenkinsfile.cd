@@ -1,8 +1,5 @@
 pipeline {
   agent any
-  options {
-    skipStagesAfterUnstable(false)
-  }
 
   environment {
     MODULE_DIR             = 'microservices/User'

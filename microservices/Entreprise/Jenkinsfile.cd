@@ -1,9 +1,5 @@
 pipeline {
   agent any
-  // Si le dossier Jenkins a "Skip stages after unstable", un simple UNSTABLE masque l'étape 6.
-  options {
-    skipStagesAfterUnstable(false)
-  }
 
   environment {
     MODULE_DIR             = 'microservices/Entreprise'
