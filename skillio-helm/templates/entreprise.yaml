@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: entreprise
+  namespace: skillio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: entreprise
+  template:
+    metadata:
+      labels:
+        app: entreprise
+    spec:
+      imagePullSecrets:
+        - name: harbor-secret
+      containers:
+        - name: entreprise
+          image: {{ .Values.entreprise.image }}
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: entreprise
+  namespace: skillio
+spec:
+  type: NodePort
+  selector:
+    app: entreprise
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30082
