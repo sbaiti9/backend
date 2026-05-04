@@ -1,0 +1,83 @@
+# Default namespace for all resources (override with -n or Argo CD application spec).
+namespace: skillio
+
+# Create once per cluster: kubectl create secret docker-registry harbor-registry \
+#   --docker-server=192.168.33.10:8888 --docker-username=... --docker-password=... -n skillio
+imagePullSecrets:
+  - name: harbor-registry
+
+images:
+  frontend:
+    repository: 192.168.33.10:8888/skillio/skillio-frontend
+    tag: "14"
+  apiGateway:
+    repository: 192.168.33.10:8888/skillio/skillio-api-gateway
+    tag: "1"
+  user:
+    repository: 192.168.33.10:8888/skillio/skillio-user
+    tag: "7"
+  entreprise:
+    repository: 192.168.33.10:8888/skillio/skillio-entreprise
+    tag: "19"
+  event:
+    repository: 192.168.33.10:8888/skillio/skillio-event
+    tag: "7"
+  subscription:
+    repository: 192.168.33.10:8888/skillio/skillio-subscription
+    tag: "13"
+  training:
+    repository: 192.168.33.10:8888/skillio/skillio-training
+    tag: "7"
+
+# Public CORS origin for browsers (Angular). Used by api-gateway nginx ConfigMap.
+apiGateway:
+  cors:
+    origin: "http://192.168.33.10:30095"
+
+nodePorts:
+  frontend: 30095
+  apiGateway: 30091
+  user: 30081
+  entreprise: 30082
+  event: 30083
+  subscription: 30084
+  training: 30080
+
+replicas:
+  frontend: 1
+  apiGateway: 1
+  user: 1
+  entreprise: 1
+  event: 1
+  subscription: 1
+  training: 1
+  mysql: 1
+
+mysql:
+  image: mysql:8.0
+  auth:
+    rootPassword: skillio-demo-change-me
+  persistence:
+    enabled: true
+    size: 8Gi
+    storageClassName: ""
+
+user:
+  containerPort: 8085
+  databaseUrl: jdbc:mysql://mysql:3306/entreprise_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+
+entreprise:
+  containerPort: 8083
+  databaseUrl: jdbc:mysql://mysql:3306/entreprise_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+
+event:
+  containerPort: 8099
+  databaseUrl: jdbc:mysql://mysql:3306/entreprise_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+
+subscription:
+  containerPort: 8089
+  databaseUrl: jdbc:mysql://mysql:3306/subscription_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+
+training:
+  containerPort: 8086
+  databaseUrl: jdbc:mysql://mysql:3306/entreprise_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC

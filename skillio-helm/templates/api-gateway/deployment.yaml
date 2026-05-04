@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: api-gateway
+spec:
+  replicas: {{ .Values.replicas.apiGateway }}
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: api-gateway
+          image: "{{ .Values.images.apiGateway.repository }}:{{ .Values.images.apiGateway.tag }}"
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8091
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: k8s-nginx-cors
+            - name: SERVER_PORT
+              value: "8091"
+            - name: EUREKA_CLIENT_ENABLED
+              value: "false"
+            - name: EUREKA_CLIENT_REGISTER_WITH_EUREKA
+              value: "false"
+            - name: EUREKA_CLIENT_FETCH_REGISTRY
+              value: "false"
+            - name: SPRING_CLOUD_DISCOVERY_ENABLED
+              value: "false"
+            - name: GATEWAY_SERVICES_USER_DIRECT_URI
+              value: "http://user.{{ .Values.namespace }}.svc.cluster.local"
+            - name: GATEWAY_SERVICES_ENTREPRISE_DIRECT_URI
+              value: "http://entreprise.{{ .Values.namespace }}.svc.cluster.local"
+            - name: GATEWAY_SERVICES_SUBSCRIPTION_DIRECT_URI
+              value: "http://subscription.{{ .Values.namespace }}.svc.cluster.local"
+            - name: GATEWAY_SERVICES_EVENT_DIRECT_URI
+              value: "http://event.{{ .Values.namespace }}.svc.cluster.local"
+            - name: GATEWAY_SERVICES_TRAINING_DIRECT_URI
+              value: "http://training.{{ .Values.namespace }}.svc.cluster.local"
+        - name: nginx
+          image: nginx:1.27-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: gateway-nginx-conf
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      volumes:
+        - name: gateway-nginx-conf
+          configMap:
+            name: gateway-nginx-conf

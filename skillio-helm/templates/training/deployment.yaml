@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: training
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: training
+spec:
+  replicas: {{ .Values.replicas.training }}
+  selector:
+    matchLabels:
+      app: training
+  template:
+    metadata:
+      labels:
+        app: training
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: training
+          image: "{{ .Values.images.training.repository }}:{{ .Values.images.training.tag }}"
+          imagePullPolicy: Always
+          ports:
+            - containerPort: {{ .Values.training.containerPort }}
+          env:
+            - name: SERVER_PORT
+              value: "{{ .Values.training.containerPort }}"
+            - name: EUREKA_CLIENT_ENABLED
+              value: "false"
+            - name: EUREKA_CLIENT_REGISTER_WITH_EUREKA
+              value: "false"
+            - name: EUREKA_CLIENT_FETCH_REGISTRY
+              value: "false"
+            - name: SPRING_DATASOURCE_URL
+              value: {{ .Values.training.databaseUrl | quote }}
+            - name: SPRING_DATASOURCE_USERNAME
+              value: root
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_ROOT_PASSWORD

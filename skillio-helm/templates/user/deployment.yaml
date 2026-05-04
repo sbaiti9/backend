@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: user
+spec:
+  replicas: {{ .Values.replicas.user }}
+  selector:
+    matchLabels:
+      app: user
+  template:
+    metadata:
+      labels:
+        app: user
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: user
+          image: "{{ .Values.images.user.repository }}:{{ .Values.images.user.tag }}"
+          imagePullPolicy: Always
+          ports:
+            - containerPort: {{ .Values.user.containerPort }}
+          env:
+            - name: SERVER_PORT
+              value: "{{ .Values.user.containerPort }}"
+            - name: EUREKA_CLIENT_ENABLED
+              value: "false"
+            - name: EUREKA_CLIENT_REGISTER_WITH_EUREKA
+              value: "false"
+            - name: EUREKA_CLIENT_FETCH_REGISTRY
+              value: "false"
+            - name: SPRING_DATASOURCE_URL
+              value: {{ .Values.user.databaseUrl | quote }}
+            - name: SPRING_DATASOURCE_USERNAME
+              value: root
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_ROOT_PASSWORD

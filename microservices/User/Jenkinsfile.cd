@@ -20,7 +20,7 @@ pipeline {
     HARBOR_REGISTRY_WEB    = 'http://192.168.33.10:8888'
     HELM_VALUES_SED_FROM    = '  user:'
     HELM_VALUES_SED_TO      = '  entreprise:'
-    GIT_PUSH_BRANCH         = 'main'
+    GIT_PUSH_BRANCH         = 'master'
   }
 
   parameters {
@@ -155,11 +155,19 @@ pipeline {
                 sh '''#!/bin/bash
                   set -eu
                   HELM_VALUES=""
-                  for p in "${WORKSPACE}/skillio-helm/values.yaml" "${WORKSPACE}/SKILLIO/SKILLIO/skillio-helm/values.yaml" "${WORKSPACE}/Backend/Backend/skillio-helm/values.yaml" "${WORKSPACE}/../skillio-helm/values.yaml" "${WORKSPACE}/../../skillio-helm/values.yaml"; do
-                    if [ -f "$p" ]; then HELM_VALUES="$p"; break; fi
-                  done
+                  GIT_TOP="$(git -C "${WORKSPACE}" rev-parse --show-toplevel 2>/dev/null || true)"
+                  if [ -n "${GIT_TOP}" ] && [ -f "${GIT_TOP}/skillio-helm/values.yaml" ]; then
+                    HELM_VALUES="${GIT_TOP}/skillio-helm/values.yaml"
+                  fi
                   if [ -z "${HELM_VALUES}" ]; then
-                    echo "FATAL: skillio-helm/values.yaml introuvable (WORKSPACE=${WORKSPACE})."
+                    for p in "${WORKSPACE}/skillio-helm/values.yaml" "${WORKSPACE}/SKILLIO/SKILLIO/skillio-helm/values.yaml" "${WORKSPACE}/Backend/Backend/skillio-helm/values.yaml" "${WORKSPACE}/../skillio-helm/values.yaml" "${WORKSPACE}/../../skillio-helm/values.yaml"; do
+                      if [ -f "$p" ]; then HELM_VALUES="$p"; break; fi
+                    done
+                  fi
+                  if [ -z "${HELM_VALUES}" ]; then
+                    echo "FATAL: skillio-helm/values.yaml introuvable."
+                    echo "GIT_TOP=${GIT_TOP:-} WORKSPACE=${WORKSPACE}"
+                    echo "Committez le dossier skillio-helm/ à la racine du dépôt backend (copie depuis PI/Backend/Backend/skillio-helm)."
                     exit 1
                   fi
                   cd "${WORKSPACE}"

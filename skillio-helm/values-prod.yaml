@@ -1,0 +1,19 @@
+# Production overrides (use: helm upgrade -f values.yaml -f values-prod.yaml ...)
+namespace: skillio
+
+apiGateway:
+  cors:
+    origin: "https://skillio.example.com"
+
+mysql:
+  persistence:
+    size: 20Gi
+
+replicas:
+  frontend: 2
+  apiGateway: 2
+  user: 2
+  entreprise: 2
+  event: 2
+  subscription: 2
+  training: 2
