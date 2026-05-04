@@ -179,9 +179,24 @@ pipeline {
                   cd "${GIT_TOP}"
                   URL="$(git remote get-url origin)"
                   REPO_PATH="$(printf '%s' "$URL" | sed -E 's#(https?://|git@)github.com[:/]##' | sed 's#\\.git$##')"
-                  sed -i "/^${SED_FROM}\$/,/^${SED_TO}\$/{
-                    /^    tag:/s/^    tag:.*/    tag: \"${TAG}\"/"
-                  }" "${HELM_VALUES}"
+                  awk -v start="$SED_FROM" -v end="$SED_TO" -v tag="$TAG" '
+                  function trim(s) { gsub(/\r/, "", s); return s }
+                  {
+                    line = trim($0)
+                    st = trim(start)
+                    en = trim(end)
+                    if (line == st) { in_block=1; tag_done=0 }
+                    if (in_block && line == en) { in_block=0 }
+                    if (in_block && !tag_done && line ~ /^[[:space:]]+tag:/) {
+                      match($0, /^[[:space:]]+/)
+                      indent = substr($0, 1, RLENGTH)
+                      printf "%stag: \"%s\"\n", indent, tag
+                      tag_done=1
+                      next
+                    }
+                    print
+                  }
+                  ' "${HELM_VALUES}" > "${HELM_VALUES}.tmp" && mv "${HELM_VALUES}.tmp" "${HELM_VALUES}"
                   git add "${HELM_VALUES}"
                   if git diff --cached --quiet; then
                     echo "Aucun changement Helm (tag déjà à jour ?)."
