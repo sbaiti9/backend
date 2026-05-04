@@ -5,7 +5,9 @@ pipeline {
     MODULE_DIR             = 'microservices/Event'
     PROJECT_DIR            = 'microservices/Event'
     IMAGE_REPO             = 'wissemsbaiti/skillio-event'
-    DOCKER_HUB_CREDENTIALS = 'dockerhub-wissemsbaiti'
+    IMAGE_REPO_HARBOR      = '192.168.33.10:8888/skillio/skillio-event'
+    HARBOR_REGISTRY        = '192.168.33.10:8888'
+    HARBOR_CREDENTIALS     = 'harbor-credentials'
     KUBECONFIG_CREDENTIALS = 'kubeconfig-skillio'
     K8S_NS                 = 'skillio'
     DEPLOY_NAME            = 'event'
@@ -15,7 +17,7 @@ pipeline {
     NOTIFY_EMAIL           = 'mariem.abiidii49@gmail.com'
     SONAR_HOST_URL         = 'http://192.168.33.10:9000'
     SONAR_PROJECT_KEY      = 'piBackend-Event'
-    DOCKER_HUB_REPO_WEB    = 'https://hub.docker.com/r/wissemsbaiti/skillio-event'
+    HARBOR_REGISTRY_WEB    = 'http://192.168.33.10:8888'
   }
 
   parameters {
@@ -45,19 +47,22 @@ pipeline {
             }
             env.DOCKER_IMAGE_TAG = tag
             env.DOCKER_IMAGE_NAME = env.IMAGE_REPO
-            env.IMAGE_FULL = "${env.IMAGE_REPO}:${tag}"
+            env.HARBOR_IMAGE_REPO = env.IMAGE_REPO_HARBOR
+            env.IMAGE_FULL = "${env.IMAGE_REPO_HARBOR}:${tag}"
 
             echo '🐳 Construction de l\'image Docker...'
             sh """
               set -eu
               docker build -t ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG} .
               docker tag ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG} ${env.DOCKER_IMAGE_NAME}:latest
+              docker tag ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG} ${env.HARBOR_IMAGE_REPO}:${env.DOCKER_IMAGE_TAG}
+              docker tag ${env.DOCKER_IMAGE_NAME}:latest ${env.HARBOR_IMAGE_REPO}:latest
             """
             echo '✅ Image Docker construite avec succès'
 
-            echo '📤 Push de l\'image sur Docker Hub...'
+            echo '📤 Push de l\'image sur Harbor...'
             withCredentials([usernamePassword(
-              credentialsId: "${DOCKER_HUB_CREDENTIALS}",
+              credentialsId: "${HARBOR_CREDENTIALS}",
               usernameVariable: 'DOCKER_USER',
               passwordVariable: 'DOCKER_PASS'
             )]) {
@@ -65,22 +70,22 @@ pipeline {
                 timeout(time: 10, unit: 'MINUTES') {
                   sh '''
                     set -eu
-                    echo "Tentative de connexion à Docker Hub..."
-                    echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                    echo "Connexion Harbor (${HARBOR_REGISTRY})..."
+                    echo "$DOCKER_PASS" | docker login "${HARBOR_REGISTRY}" -u "$DOCKER_USER" --password-stdin
 
-                    echo "Push image avec tag courant..."
-                    docker push "${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}"
-                    echo "Push tag latest..."
-                    docker push "${DOCKER_IMAGE_NAME}:latest"
-                    docker logout || true
-                    echo "✅ Push terminé avec succès"
+                    echo "Push Harbor (tag courant)..."
+                    docker push "${HARBOR_IMAGE_REPO}:${DOCKER_IMAGE_TAG}"
+                    echo "Push Harbor (latest)..."
+                    docker push "${HARBOR_IMAGE_REPO}:latest"
+                    docker logout "${HARBOR_REGISTRY}" || true
+                    echo "✅ Push Harbor terminé"
                   '''
                 }
               }
             }
           }
         }
-        echo '✅ Image Docker construite et poussée sur Docker Hub avec succès'
+        echo '✅ Image Docker construite et poussée sur Harbor avec succès'
       }
     }
 
@@ -203,13 +208,13 @@ pipeline {
                       <ul>
                         <li><strong>Job:</strong> ${env.JOB_NAME}</li>
                         <li><strong>Build:</strong> #${env.BUILD_NUMBER}</li>
-                        <li><strong>Image:</strong> ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}</li>
+                        <li><strong>Image:</strong> ${env.IMAGE_FULL}</li>
                         <li><strong>Pods Running (approx):</strong> ${deploymentRunning}</li>
                         <li><strong>URL app:</strong> <a href="http://${kubeIP}:${env.APP_NODE_PORT}">http://${kubeIP}:${env.APP_NODE_PORT}</a></li>
                         <li><strong>Grafana:</strong> <a href="http://${kubeIP}:30950">http://${kubeIP}:30950</a> (mot de passe admin: voir secret kube-prometheus-stack-grafana)</li>
                       </ul>
                       <p><a href="${env.SONAR_HOST_URL}/dashboard?id=${env.SONAR_PROJECT_KEY}">SonarQube</a></p>
-                      <p><a href="${env.DOCKER_HUB_REPO_WEB}">Docker Hub</a></p>
+                      <p><a href="${env.HARBOR_REGISTRY_WEB}">Harbor</a></p>
                       <p style="color:#6c757d;font-size:12px;"><a href="${env.BUILD_URL}">Logs Jenkins</a></p>
                     </body></html>
                   """,
@@ -230,7 +235,7 @@ pipeline {
   post {
     success {
       echo '✅ Pipeline CD exécuté avec succès.'
-      echo "Image Docker: ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG}"
+      echo "Image Harbor: ${env.IMAGE_FULL}"
       echo "Namespace Kubernetes: ${env.K8S_NS}"
     }
     failure {
@@ -256,6 +261,8 @@ pipeline {
           sh """
             docker rmi ${env.DOCKER_IMAGE_NAME}:${env.DOCKER_IMAGE_TAG} || true
             docker rmi ${env.DOCKER_IMAGE_NAME}:latest || true
+            docker rmi ${env.HARBOR_IMAGE_REPO}:${env.DOCKER_IMAGE_TAG} || true
+            docker rmi ${env.HARBOR_IMAGE_REPO}:latest || true
           """
         }
       }
