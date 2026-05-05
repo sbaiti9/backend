@@ -72,6 +72,35 @@ pipeline {
       }
     }
 
+    stage('4.5. Analyse Sécurité Trivy') {
+      steps {
+        echo 'Analyse sécurité Trivy (HIGH/CRITICAL) — rapport archivé, build non bloquant.'
+        withCredentials([usernamePassword(
+          credentialsId: 'harbor-credentials',
+          usernameVariable: 'DOCKER_USER',
+          passwordVariable: 'DOCKER_PASS'
+        )]) {
+          sh """
+            set +e
+            HARBOR_REGISTRY='192.168.33.10:8888'
+            IMAGE_REF='192.168.33.10:8888/skillio/skillio-entreprise:${BUILD_NUMBER}'
+            REPORT='${WORKSPACE}/trivy-report-entreprise.txt'
+            echo "\$DOCKER_PASS" | docker login "\$HARBOR_REGISTRY" -u "\$DOCKER_USER" --password-stdin
+            if docker pull "\$IMAGE_REF"; then
+              /usr/local/bin/trivy image --exit-code 0 --severity HIGH,CRITICAL --format table --output "\$REPORT" "\$IMAGE_REF"
+            else
+              echo "Trivy: pull impossible pour \$IMAGE_REF (image absente avant le pipeline CD ou accès registry)." > "\$REPORT"
+            fi
+            docker logout "\$HARBOR_REGISTRY" >/dev/null 2>&1 || true
+            exit 0
+          """
+        }
+        archiveArtifacts artifacts: 'trivy-report-*.txt',
+                         fingerprint: true,
+                         allowEmptyArchive: true
+      }
+    }
+
     stage('5. Lancer partie CD') {
       steps {
         script {
