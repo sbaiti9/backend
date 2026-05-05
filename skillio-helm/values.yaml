@@ -1,14 +1,14 @@
 frontend:
-  image: 192.168.33.10:8888/skillio/frontend:latest
+  image: 192.168.33.10:8888/skillio/skillio-frontend:latest
 apiGateway:
-  image: 192.168.33.10:8888/skillio/api-gateway:latest
+  image: 192.168.33.10:8888/skillio/skillio-api-gateway:latest
 user:
-  image: 192.168.33.10:8888/skillio/user:latest
+  image: 192.168.33.10:8888/skillio/skillio-user:latest
 entreprise:
-  image: 192.168.33.10:8888/skillio/entreprise:latest
+  image: 192.168.33.10:8888/skillio/skillio-entreprise:latest
 event:
-  image: 192.168.33.10:8888/skillio/event:latest
+  image: 192.168.33.10:8888/skillio/skillio-event:latest
 subscription:
-  image: 192.168.33.10:8888/skillio/subscription:latest
+  image: 192.168.33.10:8888/skillio/skillio-subscription:latest
 training:
-  image: 192.168.33.10:8888/skillio/training:latest
+  image: 192.168.33.10:8888/skillio/skillio-training:latest
