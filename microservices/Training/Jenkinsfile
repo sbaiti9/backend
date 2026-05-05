@@ -83,7 +83,7 @@ pipeline {
           sh """
             set +e
             HARBOR_REGISTRY='192.168.33.10:8888'
-            IMAGE_REF='192.168.33.10:8888/skillio/skillio-training:${BUILD_NUMBER}'
+            IMAGE_REF='192.168.33.10:8888/skillio/skillio-training:latest'
             REPORT='${WORKSPACE}/trivy-report-training.txt'
             echo "\$DOCKER_PASS" | docker login "\$HARBOR_REGISTRY" -u "\$DOCKER_USER" --password-stdin
             if docker pull "\$IMAGE_REF"; then
