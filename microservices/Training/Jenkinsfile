@@ -87,7 +87,7 @@ pipeline {
             REPORT='${WORKSPACE}/trivy-report-training.txt'
             echo "\$DOCKER_PASS" | docker login "\$HARBOR_REGISTRY" -u "\$DOCKER_USER" --password-stdin
             if docker pull "\$IMAGE_REF"; then
-              /usr/local/bin/trivy image --exit-code 0 --severity HIGH,CRITICAL --format table --output "\$REPORT" "\$IMAGE_REF"
+              /usr/local/bin/trivy image --exit-code 0 --severity HIGH,CRITICAL --format table --pkg-types os --output "\$REPORT" "\$IMAGE_REF"
             else
               echo "Trivy: pull impossible pour \$IMAGE_REF (image absente avant le pipeline CD ou accès registry)." > "\$REPORT"
             fi
