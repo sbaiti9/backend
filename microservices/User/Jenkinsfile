@@ -1,6 +1,13 @@
 pipeline {
   agent any
 
+  options {
+    buildDiscarder(logRotator(
+      numToKeepStr: '25',
+      artifactNumToKeepStr: '15'
+    ))
+  }
+
   environment {
     SONAR_PROJECT_KEY  = 'piBackend-User'
     SONAR_PROJECT_NAME = 'Skillio Backend — User'

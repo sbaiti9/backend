@@ -1,6 +1,14 @@
 pipeline {
   agent any
 
+  options {
+    // Limit stored builds + archived JARs (avoids filling /var/lib/jenkins on small disks)
+    buildDiscarder(logRotator(
+      numToKeepStr: '25',
+      artifactNumToKeepStr: '15'
+    ))
+  }
+
   environment {
     SONAR_PROJECT_KEY  = 'piBackend-Entreprise'
     SONAR_PROJECT_NAME = 'Skillio Backend — Entreprise'
