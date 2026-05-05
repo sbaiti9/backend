@@ -8,7 +8,6 @@ import tn.esprit.event.entity.Reservation;
 import tn.esprit.event.entity.ReservationStatus;
 
 import java.util.List;
-import java.util.Optional;
 
 @Repository
 public interface ReservationRepository extends JpaRepository<Reservation, Long> {
@@ -39,7 +38,4 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
 
     // ✅ Supprimer les réservations d'un événement
     void deleteByEventId(Long eventId);
-
-    // ✅ Obtenir une réservation spécifique
-    Optional<Reservation> findById(Long id);
 }

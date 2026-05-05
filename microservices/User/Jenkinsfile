@@ -43,6 +43,9 @@ pipeline {
         dir("${env.MODULE_DIR}") {
           withSonarQubeEnv('SonarQube') {
             sh """
+              # Ensure Sonar has a writable working directory (avoids target permission issues)
+              rm -rf "\${WORKSPACE}/.sonar" "target/sonar" || true
+              mkdir -p "\${WORKSPACE}/.sonar" "target/sonar"
               mvn -q -f pom.xml sonar:sonar \\
                 -Dsonar.projectKey=${SONAR_PROJECT_KEY} \\
                 -Dsonar.projectName="${SONAR_PROJECT_NAME}" \\
@@ -50,7 +53,8 @@ pipeline {
                 -Dsonar.tests=src/test/java \\
                 -Dsonar.java.binaries=target/classes \\
                 -Dsonar.junit.reportPaths=target/surefire-reports \\
-                -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+                -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \\
+                -Dsonar.working.directory="\${WORKSPACE}/.sonar"
             """
           }
         }

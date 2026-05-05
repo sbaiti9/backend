@@ -18,6 +18,8 @@
     <properties>
         <java.version>17</java.version>
         <spring-cloud.version>2023.0.1</spring-cloud.version> <!-- ✅ Compatible with Boot 3.2.x -->
+        <sonar.projectKey>piBackend-Event</sonar.projectKey>
+        <sonar.projectName>Skillio Backend - Event</sonar.projectName>
     </properties>
 
     <dependencies>
@@ -161,6 +163,11 @@
                         </exclude>
                     </excludes>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.sonarsource.scanner.maven</groupId>
+                <artifactId>sonar-maven-plugin</artifactId>
+                <version>4.0.0.4121</version>
             </plugin>
         </plugins>
     </build>

@@ -3,7 +3,7 @@ pipeline {
 
   environment {
     SONAR_PROJECT_KEY  = 'piBackend-Event'
-    SONAR_PROJECT_NAME = 'Skillio Backend — Event'
+    SONAR_PROJECT_NAME = 'Skillio Backend - Event'
     MODULE_DIR         = 'microservices/Event'
     SONAR_HOST_URL     = 'http://192.168.33.10:9000'
   }
@@ -43,6 +43,7 @@ pipeline {
         dir("${env.MODULE_DIR}") {
           withSonarQubeEnv('SonarQube') {
             sh """
+              rm -rf target/sonar
               mvn -q -f pom.xml sonar:sonar \\
                 -Dsonar.projectKey=${SONAR_PROJECT_KEY} \\
                 -Dsonar.projectName="${SONAR_PROJECT_NAME}" \\
