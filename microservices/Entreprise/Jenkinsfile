@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-[paste the complete modified Jenkinsfile here]
-=======
 pipeline {
   agent any
 
@@ -135,4 +132,3 @@ pipeline {
     }
   }
 }
->>>>>>> b86638f (himothes)
