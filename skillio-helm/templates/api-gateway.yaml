@@ -19,6 +19,7 @@ spec:
       containers:
         - name: api-gateway
           image: {{ .Values.apiGateway.image }}
+          imagePullPolicy: Always
           ports:
             - containerPort: 8091
 ---
