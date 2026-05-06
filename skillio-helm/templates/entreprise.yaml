@@ -14,14 +14,15 @@ spec:
       labels:
         app: entreprise
     spec:
+      enableServiceLinks: false
       imagePullSecrets:
         - name: harbor-secret
       containers:
         - name: entreprise
           image: {{ .Values.entreprise.image }}
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
-
           env:
             - name: SPRING_DATASOURCE_URL
               value: "jdbc:mysql://mysql:3306/entreprise_db?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
@@ -29,8 +30,10 @@ spec:
               value: "root"
             - name: SPRING_DATASOURCE_PASSWORD
               value: "root123"
-            - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
-              value: "http://localhost:8762/eureka/"
+            - name: EUREKA_CLIENT_REGISTER-WITH-EUREKA
+              value: "false"
+            - name: EUREKA_CLIENT_FETCH-REGISTRY
+              value: "false"
 ---
 apiVersion: v1
 kind: Service
@@ -45,7 +48,3 @@ spec:
     - port: 8080
       targetPort: 8080
       nodePort: 30082
-            - name: EUREKA_CLIENT_REGISTER-WITH-EUREKA
-              value: "false"
-            - name: EUREKA_CLIENT_FETCH-REGISTRY
-              value: "false"
