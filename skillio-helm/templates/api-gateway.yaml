@@ -1,3 +1,65 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-gateway-config
+  namespace: skillio
+data:
+  application.yml: |
+    server:
+      port: 8091
+    eureka:
+      client:
+        register-with-eureka: false
+        fetch-registry: false
+    spring:
+      cloud:
+        gateway:
+          globalcors:
+            cors-configurations:
+              '[/**]':
+                allowedOrigins:
+                  - "http://192.168.33.10:30095"
+                allowedMethods:
+                  - GET
+                  - POST
+                  - PUT
+                  - DELETE
+                  - OPTIONS
+                allowedHeaders:
+                  - "*"
+                allowCredentials: true
+          routes:
+            - id: user
+              uri: http://user:8080
+              predicates:
+                - Path=/user/**
+              filters:
+                - StripPrefix=1
+            - id: entreprise
+              uri: http://entreprise:8080
+              predicates:
+                - Path=/entreprise/**
+              filters:
+                - StripPrefix=1
+            - id: subscription
+              uri: http://subscription:8080
+              predicates:
+                - Path=/sub/**
+              filters:
+                - StripPrefix=1
+            - id: event
+              uri: http://event:8080
+              predicates:
+                - Path=/event/**
+              filters:
+                - StripPrefix=1
+            - id: training
+              uri: http://training:8080
+              predicates:
+                - Path=/training/**
+              filters:
+                - StripPrefix=1
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -23,73 +85,16 @@ spec:
           imagePullPolicy: Always
           ports:
             - containerPort: 8091
+          volumeMounts:
+            - name: config
+              mountPath: /config
           env:
-            - name: EUREKA_CLIENT_REGISTER-WITH-EUREKA
-              value: "false"
-            - name: EUREKA_CLIENT_FETCH-REGISTRY
-              value: "false"
-            - name: GATEWAY_SERVICES_ENTREPRISE-DIRECT-URI
-              value: "http://entreprise:8080"
-            - name: GATEWAY_SERVICES_SUBSCRIPTION-DIRECT-URI
-              value: "http://subscription:8080"
-            - name: GATEWAY_SERVICES_USER-DIRECT-URI
-              value: "http://user:8080"
-            - name: SPRING_CLOUD_GATEWAY_GLOBALCORS_CORSCONFIGURATIONS_[/**]_ALLOWEDORIGINS_0
-              value: "http://192.168.33.10:30095"
-            - name: SPRING_CLOUD_GATEWAY_GLOBALCORS_CORSCONFIGURATIONS_[/**]_ALLOWEDMETHODS_0
-              value: "GET"
-            - name: SPRING_CLOUD_GATEWAY_GLOBALCORS_CORSCONFIGURATIONS_[/**]_ALLOWEDMETHODS_1
-              value: "POST"
-            - name: SPRING_CLOUD_GATEWAY_GLOBALCORS_CORSCONFIGURATIONS_[/**]_ALLOWEDMETHODS_2
-              value: "PUT"
-            - name: SPRING_CLOUD_GATEWAY_GLOBALCORS_CORSCONFIGURATIONS_[/**]_ALLOWEDMETHODS_3
-              value: "DELETE"
-            - name: SPRING_CLOUD_GATEWAY_GLOBALCORS_CORSCONFIGURATIONS_[/**]_ALLOWEDMETHODS_4
-              value: "OPTIONS"
-            - name: SPRING_CLOUD_GATEWAY_GLOBALCORS_CORSCONFIGURATIONS_[/**]_ALLOWEDHEADERS_0
-              value: "*"
-            - name: SPRING_CLOUD_GATEWAY_GLOBALCORS_CORSCONFIGURATIONS_[/**]_ALLOWCREDENTIALS
-              value: "true"
-            - name: SPRING_CLOUD_GATEWAY_ROUTES_0_ID
-              value: "user"
-            - name: SPRING_CLOUD_GATEWAY_ROUTES_0_URI
-              value: "http://user:8080"
-            - name: SPRING_CLOUD_GATEWAY_ROUTES_0_PREDICATES_0
-              value: "Path=/user/**"
-            - name: SPRING_CLOUD_GATEWAY_ROUTES_0_FILTERS_0
-              value: "StripPrefix=1"
-            - name: SPRING_CLOUD_GATEWAY_ROUTES_1_ID
-              value: "entreprise"
-            - name: SPRING_CLOUD_GATEWAY_ROUTES_1_URI
-              value: "http://entreprise:8080"
-            - name: SPRING_CLOUD_GATEWAY_ROUTES_1_PREDICATES_0
-              value: "Path=/entreprise/**"
-            - name: SPRING_CLOUD_GATEWAY_ROUTES_1_FILTERS_0
-              value: "StripPrefix=1"
-            - name: SPRING_CLOUD_GATEWAY_ROUTES_2_ID
-              value: "subscription"
-            - name: SPRING_CLOUD_GATEWAY_ROUTES_2_URI
-              value: "http://subscription:8080"
-            - name: SPRING_CLOUD_GATEWAY_ROUTES_2_PREDICATES_0
-              value: "Path=/sub/**"
-            - name: SPRING_CLOUD_GATEWAY_ROUTES_2_FILTERS_0
-              value: "StripPrefix=1"
-            - name: SPRING_CLOUD_GATEWAY_ROUTES_3_ID
-              value: "event"
-            - name: SPRING_CLOUD_GATEWAY_ROUTES_3_URI
-              value: "http://event:8080"
-            - name: SPRING_CLOUD_GATEWAY_ROUTES_3_PREDICATES_0
-              value: "Path=/event/**"
-            - name: SPRING_CLOUD_GATEWAY_ROUTES_3_FILTERS_0
-              value: "StripPrefix=1"
-            - name: SPRING_CLOUD_GATEWAY_ROUTES_4_ID
-              value: "training"
-            - name: SPRING_CLOUD_GATEWAY_ROUTES_4_URI
-              value: "http://training:8080"
-            - name: SPRING_CLOUD_GATEWAY_ROUTES_4_PREDICATES_0
-              value: "Path=/training/**"
-            - name: SPRING_CLOUD_GATEWAY_ROUTES_4_FILTERS_0
-              value: "StripPrefix=1"
+            - name: SPRING_CONFIG_ADDITIONAL-LOCATION
+              value: "file:/config/application.yml"
+      volumes:
+        - name: config
+          configMap:
+            name: api-gateway-config
 ---
 apiVersion: v1
 kind: Service
