@@ -1,0 +1,6 @@
+**/target/
+**/BOOT-INF/
+**/*.jar
+**/*.jar.original
+**/site/
+**/surefire-reports/
