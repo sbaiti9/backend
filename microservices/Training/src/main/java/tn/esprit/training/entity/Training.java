@@ -104,6 +104,22 @@ public class Training implements Serializable {
         this.id = id;
     }
 
+    public String getEsId() {
+        return esId;
+    }
+
+    public void setEsId(String esId) {
+        this.esId = esId;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
     public String getTitle() {
         return title;
     }
