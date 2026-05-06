@@ -24,7 +24,7 @@ spec:
 
           env:
             - name: SPRING_DATASOURCE_URL
-              value: "jdbc:mysql://mysql:3306/entreprise_db?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC"
+              value: "jdbc:mysql://mysql:3306/entreprise_db?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
             - name: SPRING_DATASOURCE_USERNAME
               value: "root"
             - name: SPRING_DATASOURCE_PASSWORD
