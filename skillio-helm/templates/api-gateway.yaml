@@ -33,8 +33,6 @@ data:
               uri: http://user:8080
               predicates:
                 - Path=/user/**
-              filters:
-                - StripPrefix=1
             - id: entreprise
               uri: http://entreprise:8080
               predicates:
