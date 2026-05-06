@@ -1,8 +1,9 @@
 package tn.esprit.training.dto;
 
+import java.io.Serializable;
 import java.time.LocalDateTime;
 
-public class AvisDTO {
+public class AvisDTO implements Serializable {
     private Long id;
     private String authorName;
     private Integer rating;

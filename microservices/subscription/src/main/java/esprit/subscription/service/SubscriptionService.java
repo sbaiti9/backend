@@ -14,6 +14,8 @@ import esprit.subscription.repository.SubscriptionRepository;
 import esprit.subscription.repository.UserLoyaltyAccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -60,10 +62,12 @@ public class SubscriptionService {
         this.userClient = userClient;
     }
 
+    @Cacheable(value = "subscriptions-all", key = "'all'")
     public List<Subscription> findAll() {
         return subscriptionRepository.findAll();
     }
 
+    @Cacheable(value = "subscriptions-byUserId", key = "#userId")
     public List<Subscription> findByUserId(Long userId) {
         return subscriptionRepository.findByUserId(userId);
     }
@@ -71,6 +75,7 @@ public class SubscriptionService {
     /**
      * Returns the current ACTIVE subscription for a user. Does NOT include EXPIRED.
      */
+    @Cacheable(value = "subscriptions-activeByUserId", key = "#userId")
     public Optional<Subscription> findActiveSubscription(Long userId) {
         return subscriptionRepository.findFirstByUserIdAndStatusIn(userId, List.of("ACTIVE"));
     }
@@ -78,23 +83,34 @@ public class SubscriptionService {
     /**
      * Latest subscription for status checks (ACTIVE, PAUSED, or EXPIRED).
      */
+    @Cacheable(value = "subscriptions-latestByUserId", key = "#userId")
     public Optional<Subscription> findLatestSubscription(Long userId) {
         return subscriptionRepository.findTopByUserIdAndStatusInOrderByStartDateDesc(
                 userId, List.of("ACTIVE", "PAUSED", "EXPIRED"));
     }
 
     /** Billing UI: show ACTIVE or PAUSED subscription card. */
+    @Cacheable(value = "subscriptions-activeOrPausedByUserId", key = "#userId")
     public Optional<Subscription> findActiveOrPausedForUser(Long userId) {
         return subscriptionRepository.findTopByUserIdAndStatusInOrderByStartDateDesc(
                 userId, List.of("ACTIVE", "PAUSED"));
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = "subscriptions", key = "#id")
     public Optional<Subscription> findById(Long id) {
         return subscriptionRepository.findById(id);
     }
 
     @Transactional
+    @CacheEvict(value = {
+            "subscriptions",
+            "subscriptions-all",
+            "subscriptions-byUserId",
+            "subscriptions-activeByUserId",
+            "subscriptions-latestByUserId",
+            "subscriptions-activeOrPausedByUserId"
+    }, allEntries = true)
     public Subscription attachStripeSubscriptionId(Long subscriptionId, String stripeSubscriptionId) {
         Subscription s = subscriptionRepository.findById(subscriptionId)
                 .orElseThrow(() -> new IllegalArgumentException("Subscription not found: " + subscriptionId));
@@ -105,6 +121,14 @@ public class SubscriptionService {
     }
 
     @Transactional
+    @CacheEvict(value = {
+            "subscriptions",
+            "subscriptions-all",
+            "subscriptions-byUserId",
+            "subscriptions-activeByUserId",
+            "subscriptions-latestByUserId",
+            "subscriptions-activeOrPausedByUserId"
+    }, allEntries = true)
     public Subscription subscribe(Subscription subscription) {
         for (Subscription oldSub : subscriptionRepository.findByUserId(subscription.getUserId())) {
             if ("ACTIVE".equalsIgnoreCase(oldSub.getStatus()) || "PAUSED".equalsIgnoreCase(oldSub.getStatus())) {
@@ -356,6 +380,14 @@ public class SubscriptionService {
     }
 
     @Transactional
+    @CacheEvict(value = {
+            "subscriptions",
+            "subscriptions-all",
+            "subscriptions-byUserId",
+            "subscriptions-activeByUserId",
+            "subscriptions-latestByUserId",
+            "subscriptions-activeOrPausedByUserId"
+    }, allEntries = true)
     public void delete(Long id) {
         subscriptionRepository.deleteById(id);
     }

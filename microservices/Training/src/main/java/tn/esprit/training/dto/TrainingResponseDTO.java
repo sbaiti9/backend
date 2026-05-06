@@ -1,9 +1,10 @@
 package tn.esprit.training.dto;
 
+import java.io.Serializable;
 import java.math.BigDecimal;
 import java.util.List;
 
-public class TrainingResponseDTO {
+public class TrainingResponseDTO implements Serializable {
     private Long id;
     private String title;
     private String description;

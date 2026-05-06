@@ -6,6 +6,8 @@ import esprit.entreprise.repository.InterviewRepository;
 import esprit.entreprise.repository.JobApplicationRepository;
 import esprit.entreprise.repository.JobOfferRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,15 +40,18 @@ public class JobOfferService {
         return jobOfferRepository.findByFilters(contractType, location, remote);
     }
 
+    @Cacheable(value = "jobOffers", key = "#id")
     public Optional<JobOffer> findById(Long id) {
         return jobOfferRepository.findById(id);
     }
 
+    @Cacheable(value = "jobOffers-byCompanyId", key = "#companyId")
     public List<JobOffer> findByCompanyId(Long companyId) {
         return jobOfferRepository.findByCompany_Id(companyId);
     }
 
     @Transactional
+    @CacheEvict(value = {"jobOffers", "jobOffers-byCompanyId"}, allEntries = true)
     public JobOffer save(JobOffer jobOffer) {
         JobOffer saved = jobOfferRepository.save(jobOffer);
         jobOfferSearchService.index(saved);
@@ -54,6 +59,7 @@ public class JobOfferService {
     }
 
     @Transactional
+    @CacheEvict(value = {"jobOffers", "jobOffers-byCompanyId"}, allEntries = true)
     public JobOffer updateJobOffer(Long id, JobOffer updatedData) {
         JobOffer existing = jobOfferRepository.findById(id)
             .orElseThrow(() -> new RuntimeException("Job Offer not found with id: " + id));
@@ -74,6 +80,7 @@ public class JobOfferService {
     }
 
     @Transactional
+    @CacheEvict(value = {"jobOffers", "jobOffers-byCompanyId"}, allEntries = true)
     public void delete(Long id) {
         if (id == null) {
             throw new NoSuchElementException("Job Offer not found with id: null");

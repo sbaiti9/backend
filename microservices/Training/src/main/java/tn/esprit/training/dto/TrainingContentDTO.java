@@ -1,6 +1,8 @@
 package tn.esprit.training.dto;
 
-public class TrainingContentDTO {
+import java.io.Serializable;
+
+public class TrainingContentDTO implements Serializable {
     private Long id;
     private String title;
     private String contentUrl;

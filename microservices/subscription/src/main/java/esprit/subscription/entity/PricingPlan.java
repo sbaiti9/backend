@@ -8,6 +8,8 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.springframework.data.elasticsearch.annotations.Document;
 
+import java.io.Serializable;
+
 @Entity
 @Table(name = "pricing_plans")
 @AllArgsConstructor
@@ -16,7 +18,7 @@ import org.springframework.data.elasticsearch.annotations.Document;
 @Setter
 @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 @Document(indexName = "pricing_plans")
-public class PricingPlan {
+public class PricingPlan implements Serializable {
 
     @jakarta.persistence.Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

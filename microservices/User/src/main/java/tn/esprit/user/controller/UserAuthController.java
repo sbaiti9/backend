@@ -21,6 +21,7 @@ import tn.esprit.user.service.LoginLocationAiService;
 import tn.esprit.user.service.PlatformEngagementService;
 import tn.esprit.user.service.RecaptchaVerificationService;
 import tn.esprit.user.service.SearchService;
+import tn.esprit.user.service.UsersCachedService;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -44,6 +45,7 @@ public class UserAuthController {
     private final LoginLocationAiService loginLocationAiService;
     private final RecaptchaVerificationService recaptchaVerificationService;
     private final SearchService searchService;
+    private final UsersCachedService usersCachedService;
 
     // defaults: 3 attempts, 30 minutes lock
     private static final int MAX_FAILED_ATTEMPTS = 3;
@@ -109,8 +111,7 @@ public class UserAuthController {
         user.setPassword(encoder.encode(user.getPassword()));
 
         // ✅ Sauvegarder et récupérer l'ID
-        Users savedUser = repo.save(user);
-        searchService.indexUser(savedUser);
+        Users savedUser = usersCachedService.saveAndIndex(user);
 
         // ✅ Retourner un objet JSON avec l'ID
         Map<String, Object> response = new HashMap<>();

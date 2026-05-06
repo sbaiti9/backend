@@ -7,8 +7,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 import tn.esprit.user.entity.Users;
 import tn.esprit.user.entity.Role;
-import tn.esprit.user.repository.UserRepository;
 import tn.esprit.user.service.SearchService;
+import tn.esprit.user.service.UsersCachedService;
 
 import java.security.Principal;
 import java.util.List;
@@ -18,7 +18,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class UserController {
 
-    private final UserRepository repo;
+    private final UsersCachedService usersService;
     private final PasswordEncoder encoder;
     private final SearchService searchService;
 
@@ -26,14 +26,14 @@ public class UserController {
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     @GetMapping
     public List<Users> getAllUsers() {
-        return repo.findAll();
+        return usersService.findAll();
     }
 
     // 🔹 Voir son profil
     @GetMapping("/users/me")
     public ResponseEntity<?> getMyProfile(Principal principal) {
         String email = principal.getName();
-        Users user = repo.findByEmail(email).orElse(null);
+        Users user = usersService.findByEmail(email).orElse(null);
 
         if (user == null)
             return ResponseEntity.status(404).body("Utilisateur introuvable");
@@ -48,7 +48,7 @@ public class UserController {
                                              @RequestBody Users updatedUser) {
 
         String email = principal.getName();
-        Users user = repo.findByEmail(email).orElse(null);
+        Users user = usersService.findByEmail(email).orElse(null);
 
         if (user == null)
             return ResponseEntity.status(404).body("Utilisateur introuvable");
@@ -60,8 +60,7 @@ public class UserController {
         user.setProfession(updatedUser.getProfession());
         user.setSpecialte(updatedUser.getSpecialte());
 
-        Users saved = repo.save(user);
-        searchService.indexUser(saved);
+        usersService.saveAndIndex(user);
 
         return ResponseEntity.ok("Profil mis à jour !");
     }
@@ -71,11 +70,10 @@ public class UserController {
     @DeleteMapping("/users/{id}")
     public ResponseEntity<?> deleteUser(@PathVariable Long id) {
 
-        if (!repo.existsById(id))
+        if (usersService.findById(id).isEmpty())
             return ResponseEntity.notFound().build();
 
-        repo.deleteById(id);
-        searchService.deleteFromIndex(id);
+        usersService.deleteByIdAndDeindex(id);
         return ResponseEntity.ok("Utilisateur supprimé !");
     }
 
@@ -85,7 +83,7 @@ public class UserController {
     public ResponseEntity<?> getUserById(@PathVariable Long id) {
         System.out.println("📡 UserController: Récupération utilisateur ID=" + id);
 
-        Users user = repo.findById(id).orElse(null);
+        Users user = usersService.findById(id).orElse(null);
 
         if (user == null) {
             System.out.println("❌ Utilisateur non trouvé: " + id);
@@ -108,7 +106,7 @@ public class UserController {
     // ✅ NOUVEAU: Endpoint PUBLIC pour profil détaillé
     @GetMapping("/users/{id}/profile")
     public ResponseEntity<?> getUserProfile(@PathVariable Long id) {
-        Users user = repo.findById(id).orElse(null);
+        Users user = usersService.findById(id).orElse(null);
 
         if (user == null)
             return ResponseEntity.status(404).body("Utilisateur non trouvé");
@@ -120,7 +118,7 @@ public class UserController {
     // ✅ NOUVEAU: Endpoint PUBLIC pour infos basiques
     @GetMapping("/public/{id}")
     public ResponseEntity<?> getPublicUserProfile(@PathVariable Long id) {
-        Users user = repo.findById(id).orElse(null);
+        Users user = usersService.findById(id).orElse(null);
 
         if (user == null)
             return ResponseEntity.status(404).body("Utilisateur non trouvé");

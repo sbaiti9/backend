@@ -6,13 +6,14 @@ import lombok.*;
 import org.springframework.data.elasticsearch.annotations.Document;
 import org.springframework.data.annotation.Id;
 
+import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
 @Entity
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 @Document(indexName = "users")
-public class Users {
+public class Users implements Serializable {
     @jakarta.persistence.Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

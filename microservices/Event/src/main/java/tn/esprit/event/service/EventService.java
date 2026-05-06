@@ -2,6 +2,8 @@ package tn.esprit.event.service;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
@@ -30,6 +32,7 @@ public class EventService {
     /**
      * ✅ Créer un nouvel événement et envoyer email à tous les utilisateurs
      */
+    @CacheEvict(value = {"events", "events-all", "events-upcoming", "events-byUserId"}, allEntries = true)
     public Event createEvent(Event event) {
         System.out.println("📋 Création événement: " + event.getTitle());
 
@@ -47,6 +50,7 @@ public class EventService {
     /**
      * ✅ Récupérer tous les événements
      */
+    @Cacheable(value = "events-all", key = "'all'")
     public List<Event> getAllEvents() {
         return eventRepository.findAll();
     }
@@ -54,6 +58,7 @@ public class EventService {
     /**
      * ✅ Récupérer les événements à venir
      */
+    @Cacheable(value = "events-upcoming", key = "'all'")
     public List<Event> getUpcomingEvents() {
         return eventRepository.findUpcomingEvents();
     }
@@ -61,6 +66,7 @@ public class EventService {
     /**
      * ✅ Récupérer les événements d'un organisateur
      */
+    @Cacheable(value = "events-byUserId", key = "#userId")
     public List<Event> getEventsByUserId(Long userId) {
         return eventRepository.findByUserId(userId);
     }
@@ -68,6 +74,7 @@ public class EventService {
     /**
      * ✅ Récupérer un événement par ID
      */
+    @Cacheable(value = "events", key = "#eventId")
     public Event getEventById(Long eventId) {
         return eventRepository.findById(eventId)
                 .orElseThrow(() -> new RuntimeException("Événement non trouvé: " + eventId));
@@ -97,6 +104,7 @@ public class EventService {
     /**
      * ✅ Modifier un événement
      */
+    @CacheEvict(value = {"events", "events-all", "events-upcoming", "events-byUserId"}, allEntries = true)
     public Event updateEvent(Long eventId, Event eventDetails) {
         System.out.println("📝 Modification événement: ID=" + eventId);
 
@@ -118,6 +126,7 @@ public class EventService {
     /**
      * ✅ Supprimer un événement et ses réservations
      */
+    @CacheEvict(value = {"events", "events-all", "events-upcoming", "events-byUserId"}, allEntries = true)
     public void deleteEvent(Long eventId) {
         System.out.println("🗑️ Suppression événement: ID=" + eventId);
 

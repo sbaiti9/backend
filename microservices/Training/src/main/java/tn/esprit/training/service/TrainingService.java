@@ -2,6 +2,8 @@ package tn.esprit.training.service;
 
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.validation.Valid;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tn.esprit.training.dto.AvisCreateDTO;
@@ -44,6 +46,7 @@ public class TrainingService {
         this.trainingSearchService = trainingSearchService;
     }
 
+    @Cacheable(value = "trainings-all", key = "'all'")
     public List<TrainingResponseDTO> getAll() {
         return trainingRepository.findAll()
                 .stream()
@@ -58,6 +61,7 @@ public class TrainingService {
                 .collect(Collectors.toList());
     }
 
+    @Cacheable(value = "trainings", key = "#id")
     public TrainingResponseDTO getById(Long id) {
         Training training = trainingRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Training not found"));
@@ -69,6 +73,7 @@ public class TrainingService {
         return dto;
     }
 
+    @CacheEvict(value = {"trainings", "trainings-all"}, allEntries = true)
     public TrainingResponseDTO create(@Valid TrainingRequestDTO req) {
         Training entity = TrainingMapper.toEntity(req);
         Training saved = trainingRepository.save(entity);
@@ -77,6 +82,7 @@ public class TrainingService {
         return TrainingMapper.toDto(saved);
     }
 
+    @CacheEvict(value = {"trainings", "trainings-all"}, allEntries = true)
     public TrainingResponseDTO update(Long id, @Valid TrainingRequestDTO req) {
         Training existing = trainingRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Training not found"));
@@ -92,6 +98,7 @@ public class TrainingService {
         return TrainingMapper.toDto(existing);
     }
 
+    @CacheEvict(value = {"trainings", "trainings-all"}, allEntries = true)
     public void delete(Long id) {
         trainingRepository.deleteById(id);
         trainingSearchService.deleteFromIndex(id);

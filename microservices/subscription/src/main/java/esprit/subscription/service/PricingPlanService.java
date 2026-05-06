@@ -3,6 +3,8 @@ package esprit.subscription.service;
 import esprit.subscription.entity.PricingPlan;
 import esprit.subscription.repository.PricingPlanRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -17,18 +19,22 @@ public class PricingPlanService {
     @Autowired
     private PricingPlanSearchService pricingPlanSearchService;
 
+    @Cacheable(value = "pricingPlans-active", key = "'all'")
     public List<PricingPlan> findAllActive() {
         return pricingPlanRepository.findByIsActiveTrue();
     }
 
+    @Cacheable(value = "pricingPlans-all", key = "'all'")
     public List<PricingPlan> findAll() {
         return pricingPlanRepository.findAll();
     }
 
+    @Cacheable(value = "pricingPlans", key = "#id")
     public Optional<PricingPlan> findById(Long id) {
         return pricingPlanRepository.findById(id);
     }
 
+    @CacheEvict(value = {"pricingPlans", "pricingPlans-active", "pricingPlans-all"}, allEntries = true)
     public PricingPlan save(PricingPlan pricingPlan) {
         if (pricingPlan.getIsActive() == null) {
             pricingPlan.setIsActive(true);
@@ -38,6 +44,7 @@ public class PricingPlanService {
         return saved;
     }
 
+    @CacheEvict(value = {"pricingPlans", "pricingPlans-active", "pricingPlans-all"}, allEntries = true)
     public PricingPlan update(Long id, PricingPlan pricingPlanDetails) {
         Optional<PricingPlan> optionalPlan = pricingPlanRepository.findById(id);
         if (optionalPlan.isPresent()) {
@@ -56,6 +63,7 @@ public class PricingPlanService {
         return null;
     }
 
+    @CacheEvict(value = {"pricingPlans", "pricingPlans-active", "pricingPlans-all"}, allEntries = true)
     public void delete(Long id) {
         pricingPlanRepository.deleteById(id);
         pricingPlanSearchService.deleteFromIndex(id);
