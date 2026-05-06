@@ -28,7 +28,7 @@ spec:
             - name: SPRING_DATASOURCE_USERNAME
               value: "root"
             - name: SPRING_DATASOURCE_PASSWORD
-              value: ""
+              value: "root123"
             - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
               value: "http://localhost:8762/eureka/"
 ---
