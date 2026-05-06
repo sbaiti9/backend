@@ -14,6 +14,7 @@ spec:
       labels:
         app: user
     spec:
+      enableServiceLinks: false
       imagePullSecrets:
         - name: harbor-secret
       containers:
@@ -21,7 +22,6 @@ spec:
           image: {{ .Values.user.image }}
           ports:
             - containerPort: 8080
-
           env:
             - name: SPRING_DATASOURCE_URL
               value: "jdbc:mysql://mysql:3306/entreprise_db?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
@@ -29,8 +29,8 @@ spec:
               value: "root"
             - name: SPRING_DATASOURCE_PASSWORD
               value: "root123"
-            - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
-              value: "http://localhost:8762/eureka/"
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Deureka.client.enabled=false -Deureka.client.register-with-eureka=false -Deureka.client.fetch-registry=false -Dspring.cloud.discovery.enabled=false"
 ---
 apiVersion: v1
 kind: Service
