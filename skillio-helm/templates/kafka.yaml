@@ -19,13 +19,14 @@ spec:
         - name: zookeeper
           image: 192.168.33.10:8888/skillio/kafka:bitnami
           command:
-            - /bin/sh
-            - -c
-            - start-zookeeper.sh
+            - /opt/kafka_2.13-2.8.1/bin/zookeeper-server-start.sh
+            - /opt/kafka_2.13-2.8.1/config/zookeeper.properties
           ports:
             - containerPort: 2181
         - name: kafka
           image: 192.168.33.10:8888/skillio/kafka:bitnami
+          command:
+            - /usr/bin/start-kafka.sh
           ports:
             - containerPort: 9092
           env:
