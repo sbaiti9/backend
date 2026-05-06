@@ -16,6 +16,14 @@ spec:
     spec:
       enableServiceLinks: false
       containers:
+        - name: zookeeper
+          image: 192.168.33.10:8888/skillio/kafka:bitnami
+          command:
+            - /bin/sh
+            - -c
+            - start-zookeeper.sh
+          ports:
+            - containerPort: 2181
         - name: kafka
           image: 192.168.33.10:8888/skillio/kafka:bitnami
           ports:
