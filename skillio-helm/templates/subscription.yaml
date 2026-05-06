@@ -20,11 +20,11 @@ spec:
         - name: subscription
           image: {{ .Values.subscription.image }}
           ports:
-            - containerPort: 8080
+            - containerPort: 8089
 
           env:
             - name: SPRING_DATASOURCE_URL
-              value: "jdbc:mysql://mysql:3306/entreprise_db?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
+              value: "jdbc:mysql://mysql:3306/subscription_db?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true"
             - name: SPRING_DATASOURCE_USERNAME
               value: "root"
             - name: SPRING_DATASOURCE_PASSWORD
@@ -43,5 +43,5 @@ spec:
     app: subscription
   ports:
     - port: 8080
-      targetPort: 8080
+      targetPort: 8089
       nodePort: 30084

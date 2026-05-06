@@ -92,11 +92,15 @@ public class SecurityConfig {
                         .requestMatchers(
                                 AntPathRequestMatcher.antMatcher("/user/auth/**"),
                                 AntPathRequestMatcher.antMatcher("/user/internal/**"),
-                                AntPathRequestMatcher.antMatcher("/internal/**"),
+                                AntPathRequestMatcher.antMatcher("/user/internal/**"),
                                 AntPathRequestMatcher.antMatcher("/user/admin/geo-security/users/**/hard-freeze"),
                                 AntPathRequestMatcher.antMatcher("/h2-console/**"),
                                 AntPathRequestMatcher.antMatcher("/v3/api-docs/**"),
-                                AntPathRequestMatcher.antMatcher("/swagger-ui/**")
+                                AntPathRequestMatcher.antMatcher("/swagger-ui/**"),
+                                AntPathRequestMatcher.antMatcher("/user/search"),
+                                AntPathRequestMatcher.antMatcher("/user/search/**"),
+                                AntPathRequestMatcher.antMatcher("/user/public/**"),
+                                AntPathRequestMatcher.antMatcher("/user/users/*/profile")
                         ).permitAll()
                         .requestMatchers(AntPathRequestMatcher.antMatcher("/user/admin/**"))
                                 // Accept both naming variants to avoid authority mapping mismatches.
