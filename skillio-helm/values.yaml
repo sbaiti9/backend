@@ -12,3 +12,7 @@ subscription:
   image: 192.168.33.10:8888/skillio/skillio-subscription:latest
 training:
   image: 192.168.33.10:8888/skillio/skillio-training:latest
+kafka:
+  image: 192.168.33.10:8888/skillio/kafka:latest
+kafkaUi:
+  image: 192.168.33.10:8888/skillio/kafka-ui:latest

@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: kafka
-          image: bitnami/kafka:latest
+          image: 192.168.33.10:8888/skillio/kafka:latest
           ports:
             - containerPort: 9092
           env:
