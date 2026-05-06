@@ -1,7 +1,7 @@
 package esprit.subscription.service;
 
 import esprit.subscription.entity.PricingPlan;
-import esprit.subscription.repository.PricingPlanSearchRepository;
+import esprit.subscription.elasticsearch.PricingPlanSearchRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
