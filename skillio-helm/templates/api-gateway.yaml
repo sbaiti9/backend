@@ -24,13 +24,16 @@ spec:
           ports:
             - containerPort: 8091
           env:
-            # Disable Eureka
             - name: EUREKA_CLIENT_REGISTER-WITH-EUREKA
               value: "false"
             - name: EUREKA_CLIENT_FETCH-REGISTRY
               value: "false"
-
-            # CORS
+            - name: GATEWAY_SERVICES_ENTREPRISE-DIRECT-URI
+              value: "http://entreprise:8080"
+            - name: GATEWAY_SERVICES_SUBSCRIPTION-DIRECT-URI
+              value: "http://subscription:8080"
+            - name: GATEWAY_SERVICES_USER-DIRECT-URI
+              value: "http://user:8080"
             - name: SPRING_CLOUD_GATEWAY_GLOBALCORS_CORSCONFIGURATIONS_[/**]_ALLOWEDORIGINS_0
               value: "http://192.168.33.10:30095"
             - name: SPRING_CLOUD_GATEWAY_GLOBALCORS_CORSCONFIGURATIONS_[/**]_ALLOWEDMETHODS_0
@@ -47,8 +50,6 @@ spec:
               value: "*"
             - name: SPRING_CLOUD_GATEWAY_GLOBALCORS_CORSCONFIGURATIONS_[/**]_ALLOWCREDENTIALS
               value: "true"
-
-            # Routes with StripPrefix
             - name: SPRING_CLOUD_GATEWAY_ROUTES_0_ID
               value: "user"
             - name: SPRING_CLOUD_GATEWAY_ROUTES_0_URI
@@ -57,7 +58,6 @@ spec:
               value: "Path=/user/**"
             - name: SPRING_CLOUD_GATEWAY_ROUTES_0_FILTERS_0
               value: "StripPrefix=1"
-
             - name: SPRING_CLOUD_GATEWAY_ROUTES_1_ID
               value: "entreprise"
             - name: SPRING_CLOUD_GATEWAY_ROUTES_1_URI
@@ -66,7 +66,6 @@ spec:
               value: "Path=/entreprise/**"
             - name: SPRING_CLOUD_GATEWAY_ROUTES_1_FILTERS_0
               value: "StripPrefix=1"
-
             - name: SPRING_CLOUD_GATEWAY_ROUTES_2_ID
               value: "subscription"
             - name: SPRING_CLOUD_GATEWAY_ROUTES_2_URI
@@ -75,7 +74,6 @@ spec:
               value: "Path=/sub/**"
             - name: SPRING_CLOUD_GATEWAY_ROUTES_2_FILTERS_0
               value: "StripPrefix=1"
-
             - name: SPRING_CLOUD_GATEWAY_ROUTES_3_ID
               value: "event"
             - name: SPRING_CLOUD_GATEWAY_ROUTES_3_URI
@@ -84,7 +82,6 @@ spec:
               value: "Path=/event/**"
             - name: SPRING_CLOUD_GATEWAY_ROUTES_3_FILTERS_0
               value: "StripPrefix=1"
-
             - name: SPRING_CLOUD_GATEWAY_ROUTES_4_ID
               value: "training"
             - name: SPRING_CLOUD_GATEWAY_ROUTES_4_URI
