@@ -46,6 +46,7 @@ public class TrainingsRESTApi {
     private final AnthropicDiscoveryService anthropicDiscoveryService;
     private final GroqVisionProctorService groqVisionProctorService;
     private final ProctorSessionService proctorSessionService;
+    private final TrainingSearchService trainingSearchService;
 
     @Value("${app.upload.contents-dir:uploads/contents}")
     private String contentsDir;
@@ -63,7 +64,8 @@ public class TrainingsRESTApi {
             AnthropicPriceOptimizationService anthropicPriceOptimizationService,
             AnthropicDiscoveryService anthropicDiscoveryService,
             GroqVisionProctorService groqVisionProctorService,
-            ProctorSessionService proctorSessionService
+            ProctorSessionService proctorSessionService,
+            TrainingSearchService trainingSearchService
     ) {
         this.trainingService = trainingService;
         this.avisRepository = avisRepository;
@@ -78,6 +80,12 @@ public class TrainingsRESTApi {
         this.anthropicDiscoveryService = anthropicDiscoveryService;
         this.groqVisionProctorService = groqVisionProctorService;
         this.proctorSessionService = proctorSessionService;
+        this.trainingSearchService = trainingSearchService;
+    }
+
+    @GetMapping("/search")
+    public ResponseEntity<List<tn.esprit.training.entity.Training>> search(@RequestParam("q") String q) {
+        return ResponseEntity.ok(trainingSearchService.search(q));
     }
 
     @PostMapping("/{id}/proctor/session")
