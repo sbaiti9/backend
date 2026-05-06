@@ -10,7 +10,7 @@ import java.util.Map;
  * Feign Client pour communiquer avec le User microservice via Gateway
  * Récupère les informations de l'utilisateur (éducation, rating, statut)
  */
-@FeignClient(name = "USER", url = "http://localhost:8091/user")
+@FeignClient(name = "USER", url = "http://api-gateway:8091/user")
 public interface UserServiceClient {
 
     /**
