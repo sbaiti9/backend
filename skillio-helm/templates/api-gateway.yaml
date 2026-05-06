@@ -37,26 +37,18 @@ data:
               uri: http://entreprise:8080
               predicates:
                 - Path=/entreprise/**
-              filters:
-                - StripPrefix=1
             - id: subscription
               uri: http://subscription:8080
               predicates:
                 - Path=/sub/**
-              filters:
-                - StripPrefix=1
             - id: event
               uri: http://event:8080
               predicates:
                 - Path=/event/**
-              filters:
-                - StripPrefix=1
             - id: training
               uri: http://training:8080
               predicates:
                 - Path=/training/**
-              filters:
-                - StripPrefix=1
 ---
 apiVersion: apps/v1
 kind: Deployment
