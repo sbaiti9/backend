@@ -6,6 +6,7 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.springframework.data.elasticsearch.annotations.Document;
 
 @Entity
 @Table(name = "pricing_plans")
@@ -14,11 +15,16 @@ import lombok.Setter;
 @Getter
 @Setter
 @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
+@Document(indexName = "pricing_plans")
 public class PricingPlan {
 
-    @Id
+    @jakarta.persistence.Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Transient
+    @org.springframework.data.annotation.Id
+    private String esId;
 
     @Column(nullable = false)
     private String name; // BASIC/PRO/PREMIUM

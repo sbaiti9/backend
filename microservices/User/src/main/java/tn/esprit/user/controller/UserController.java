@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.*;
 import tn.esprit.user.entity.Users;
 import tn.esprit.user.entity.Role;
 import tn.esprit.user.repository.UserRepository;
+import tn.esprit.user.service.SearchService;
 
 import java.security.Principal;
 import java.util.List;
@@ -19,6 +20,7 @@ public class UserController {
 
     private final UserRepository repo;
     private final PasswordEncoder encoder;
+    private final SearchService searchService;
 
     // 🔹 ADMIN : voir tous les utilisateurs
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
@@ -58,7 +60,8 @@ public class UserController {
         user.setProfession(updatedUser.getProfession());
         user.setSpecialte(updatedUser.getSpecialte());
 
-        repo.save(user);
+        Users saved = repo.save(user);
+        searchService.indexUser(saved);
 
         return ResponseEntity.ok("Profil mis à jour !");
     }
@@ -72,6 +75,7 @@ public class UserController {
             return ResponseEntity.notFound().build();
 
         repo.deleteById(id);
+        searchService.deleteFromIndex(id);
         return ResponseEntity.ok("Utilisateur supprimé !");
     }
 
@@ -123,5 +127,10 @@ public class UserController {
 
         user.setPassword(null);
         return ResponseEntity.ok(user);
+    }
+
+    @GetMapping("/search")
+    public List<Users> search(@RequestParam("q") String q) {
+        return searchService.search(q);
     }
 }

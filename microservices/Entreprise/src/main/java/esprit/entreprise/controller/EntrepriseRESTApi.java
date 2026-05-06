@@ -6,6 +6,7 @@ import esprit.entreprise.entity.Company;
 import esprit.entreprise.entity.JobOffer;
 import esprit.entreprise.service.CompanyService;
 import esprit.entreprise.service.JobOfferService;
+import esprit.entreprise.service.JobOfferSearchService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
@@ -27,9 +28,17 @@ public class EntrepriseRESTApi {
     @Autowired
     private JobOfferService jobOfferService;
 
+    @Autowired
+    private JobOfferSearchService jobOfferSearchService;
+
     @GetMapping("/hello")
     public String sayHello() {
         return "Hello World from entreprise microservice";
+    }
+
+    @GetMapping("/job-offers/search")
+    public ResponseEntity<List<JobOffer>> searchJobOffers(@RequestParam("q") String q) {
+        return ResponseEntity.ok(jobOfferSearchService.search(q));
     }
 
     // ══════════════════════════════════════════════════════════════════════════════

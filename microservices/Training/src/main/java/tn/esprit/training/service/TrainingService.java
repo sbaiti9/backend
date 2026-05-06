@@ -28,17 +28,20 @@ public class TrainingService {
     private final TrainingContentRepository contentRepository;
     private final AvisRepository avisRepository;
     private final PushNotificationService pushNotificationService;
+    private final TrainingSearchService trainingSearchService;
 
     public TrainingService(
             TrainingRepository trainingRepository,
             TrainingContentRepository contentRepository,
             AvisRepository avisRepository,
-            PushNotificationService pushNotificationService
+            PushNotificationService pushNotificationService,
+            TrainingSearchService trainingSearchService
     ) {
         this.trainingRepository = trainingRepository;
         this.contentRepository = contentRepository;
         this.avisRepository = avisRepository;
         this.pushNotificationService = pushNotificationService;
+        this.trainingSearchService = trainingSearchService;
     }
 
     public List<TrainingResponseDTO> getAll() {
@@ -69,6 +72,7 @@ public class TrainingService {
     public TrainingResponseDTO create(@Valid TrainingRequestDTO req) {
         Training entity = TrainingMapper.toEntity(req);
         Training saved = trainingRepository.save(entity);
+        trainingSearchService.index(saved);
         pushNotificationService.notifyTrainingCreated(saved.getTitle());
         return TrainingMapper.toDto(saved);
     }
@@ -84,11 +88,13 @@ public class TrainingService {
         existing.setThumbnailUrl(req.getThumbnailUrl());
         existing.setLanguage(req.getLanguage());
         existing.setStatus(req.getStatus());
+        trainingSearchService.index(existing);
         return TrainingMapper.toDto(existing);
     }
 
     public void delete(Long id) {
         trainingRepository.deleteById(id);
+        trainingSearchService.deleteFromIndex(id);
     }
 
     public List<TrainingContentDTO> getContents(Long trainingId) {

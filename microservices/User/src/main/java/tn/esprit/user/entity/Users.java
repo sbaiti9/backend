@@ -3,17 +3,35 @@ package tn.esprit.user.entity;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import lombok.*;
+import org.springframework.data.elasticsearch.annotations.Document;
+import org.springframework.data.annotation.Id;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
 
 @Entity
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@Document(indexName = "users")
 public class Users {
-    @Id
+    @jakarta.persistence.Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    /**
+     * Elasticsearch document id (string version of DB id).
+     * Stored only in ES, not in the SQL table.
+     */
+    @Transient
+    @Id
+    private String esId;
     private String name;
+
+    /**
+     * Derived text used for full-text search (ES only).
+     * We populate it from other fields before indexing.
+     */
+    @Transient
+    private String description;
     @Column(unique = true)
     private String email;
     private String password;

@@ -5,6 +5,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import tn.esprit.event.entity.Event;
 import tn.esprit.event.service.EventService;
+import tn.esprit.event.service.EventSearchService;
 
 import java.time.LocalDate;
 import java.util.HashMap;
@@ -18,6 +19,7 @@ import java.util.Map;
 public class EventController {
 
     private final EventService eventService;
+    private final EventSearchService eventSearchService;
 
     /**
      * ✅ POST /event/create - Créer un nouvel événement
@@ -62,6 +64,14 @@ public class EventController {
                     "error", "❌ Erreur: " + e.getMessage()
             ));
         }
+    }
+
+    /**
+     * ✅ GET /event/search?q= - Full-text search (Elasticsearch)
+     */
+    @GetMapping("/search")
+    public List<Event> search(@RequestParam("q") String q) {
+        return eventSearchService.search(q);
     }
 
     /**

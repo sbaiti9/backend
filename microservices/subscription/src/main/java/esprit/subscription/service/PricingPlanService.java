@@ -14,6 +14,9 @@ public class PricingPlanService {
     @Autowired
     private PricingPlanRepository pricingPlanRepository;
 
+    @Autowired
+    private PricingPlanSearchService pricingPlanSearchService;
+
     public List<PricingPlan> findAllActive() {
         return pricingPlanRepository.findByIsActiveTrue();
     }
@@ -30,7 +33,9 @@ public class PricingPlanService {
         if (pricingPlan.getIsActive() == null) {
             pricingPlan.setIsActive(true);
         }
-        return pricingPlanRepository.save(pricingPlan);
+        PricingPlan saved = pricingPlanRepository.save(pricingPlan);
+        pricingPlanSearchService.index(saved);
+        return saved;
     }
 
     public PricingPlan update(Long id, PricingPlan pricingPlanDetails) {
@@ -44,13 +49,16 @@ public class PricingPlanService {
             pricingPlan.setFeatures(pricingPlanDetails.getFeatures());
             pricingPlan.setIsActive(pricingPlanDetails.getIsActive());
             pricingPlan.setHighlight(pricingPlanDetails.getHighlight());
-            return pricingPlanRepository.save(pricingPlan);
+            PricingPlan saved = pricingPlanRepository.save(pricingPlan);
+            pricingPlanSearchService.index(saved);
+            return saved;
         }
         return null;
     }
 
     public void delete(Long id) {
         pricingPlanRepository.deleteById(id);
+        pricingPlanSearchService.deleteFromIndex(id);
     }
     public long countAll()                    { return pricingPlanRepository.count(); }
     public long countByIsActive(Boolean v)    { return pricingPlanRepository.countByIsActive(v); }

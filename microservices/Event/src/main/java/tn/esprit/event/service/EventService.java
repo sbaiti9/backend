@@ -22,6 +22,7 @@ public class EventService {
 
     private final EventRepository eventRepository;
     private final ReservationRepository reservationRepository;
+    private final EventSearchService eventSearchService;
 
     @Autowired
     private JavaMailSender mailSender;
@@ -35,6 +36,7 @@ public class EventService {
         // Sauvegarder l'événement
         Event savedEvent = eventRepository.save(event);
         System.out.println("✅ Événement créé: ID=" + savedEvent.getId());
+        eventSearchService.index(savedEvent);
 
         // 📧 Envoyer email à tous les utilisateurs
         sendEventCreationEmailToAllUsers(savedEvent);
@@ -108,7 +110,9 @@ public class EventService {
         if (eventDetails.getPrice() != null) event.setPrice(eventDetails.getPrice());
         if (eventDetails.getImageBase64() != null) event.setImageBase64(eventDetails.getImageBase64());
 
-        return eventRepository.save(event);
+        Event saved = eventRepository.save(event);
+        eventSearchService.index(saved);
+        return saved;
     }
 
     /**
@@ -122,6 +126,7 @@ public class EventService {
 
         // Supprimer l'événement
         eventRepository.deleteById(eventId);
+        eventSearchService.deleteFromIndex(eventId);
 
         System.out.println("✅ Événement supprimé");
     }

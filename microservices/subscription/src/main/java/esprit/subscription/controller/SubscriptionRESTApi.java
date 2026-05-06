@@ -18,6 +18,7 @@ import esprit.subscription.entity.UserLoyaltyAccount;
 import esprit.subscription.service.FraudDetectionService;
 import esprit.subscription.service.LoyaltyService;
 import esprit.subscription.service.PricingPlanService;
+import esprit.subscription.service.PricingPlanSearchService;
 import esprit.subscription.service.PromoCodeService;
 import esprit.subscription.service.RevenueIntelligenceService;
 import esprit.subscription.service.StripeLoyaltyCouponService;
@@ -52,6 +53,7 @@ public class SubscriptionRESTApi {
     private static final long STRIPE_MIN_AMOUNT_CENTS_EUR = 50L;
 
     private final PricingPlanService pricingPlanService;
+    private final PricingPlanSearchService pricingPlanSearchService;
     private final SubscriptionService subscriptionService;
     private final PromoCodeService promoCodeService;
     private final FraudDetectionService fraudDetectionService;
@@ -66,6 +68,7 @@ public class SubscriptionRESTApi {
     private String stripeSecretKey;
 
     public SubscriptionRESTApi(PricingPlanService pricingPlanService,
+                                PricingPlanSearchService pricingPlanSearchService,
                                 SubscriptionService subscriptionService,
                                 PromoCodeService promoCodeService,
                                 FraudDetectionService fraudDetectionService,
@@ -76,6 +79,7 @@ public class SubscriptionRESTApi {
                                 StripeLoyaltyCouponService stripeLoyaltyCouponService,
                                 EmailService emailService) {
         this.pricingPlanService = pricingPlanService;
+        this.pricingPlanSearchService = pricingPlanSearchService;
         this.subscriptionService = subscriptionService;
         this.promoCodeService = promoCodeService;
         this.fraudDetectionService = fraudDetectionService;
@@ -97,6 +101,11 @@ public class SubscriptionRESTApi {
     @GetMapping("/plans/all")
     public ResponseEntity<List<PricingPlan>> getAllPlans() {
         return new ResponseEntity<>(pricingPlanService.findAll(), HttpStatus.OK);
+    }
+
+    @GetMapping("/plans/search")
+    public ResponseEntity<List<PricingPlan>> searchPlans(@RequestParam("q") String q) {
+        return new ResponseEntity<>(pricingPlanSearchService.search(q), HttpStatus.OK);
     }
 
     @GetMapping("/plans/{id}")

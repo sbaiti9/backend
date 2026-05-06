@@ -28,6 +28,9 @@ public class JobOfferService {
     @Autowired
     private InterviewCandidateFeedbackRepository interviewCandidateFeedbackRepository;
 
+    @Autowired
+    private JobOfferSearchService jobOfferSearchService;
+
     public List<JobOffer> findAll(String contractType, String location, String remote) {
         if (contractType == null && location == null && remote == null) {
             return jobOfferRepository.findAll();
@@ -45,7 +48,9 @@ public class JobOfferService {
 
     @Transactional
     public JobOffer save(JobOffer jobOffer) {
-        return jobOfferRepository.save(jobOffer);
+        JobOffer saved = jobOfferRepository.save(jobOffer);
+        jobOfferSearchService.index(saved);
+        return saved;
     }
 
     @Transactional
@@ -63,7 +68,9 @@ public class JobOfferService {
         existing.setIsActive(updatedData.getIsActive());
         
         // DO NOT update companyId or createdAt
-        return jobOfferRepository.save(existing);
+        JobOffer saved = jobOfferRepository.save(existing);
+        jobOfferSearchService.index(saved);
+        return saved;
     }
 
     @Transactional
@@ -82,6 +89,7 @@ public class JobOfferService {
         jobApplicationRepository.deleteAll(jobApplicationRepository.findByJobOfferId(id));
 
         jobOfferRepository.deleteById(id);
+        jobOfferSearchService.deleteFromIndex(id);
     }
     public long countAll() {
         return jobOfferRepository.count();

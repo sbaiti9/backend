@@ -48,6 +48,18 @@ public class GatewayApplication {
                 .route("subscription-unlock-chat-sub-prefix", r -> r.path("/sub/unlock-chat/**")
                         .uri(subscriptionTarget))
 
+                // Search routes (more specific than the general /{service}/** routes)
+                .route("user-search", r -> r.path("/user/search/**")
+                        .uri(userTarget))
+                .route("event-search", r -> r.path("/event/search/**")
+                        .uri(eventTarget))
+                .route("training-search", r -> r.path("/api/trainings/search/**")
+                        .uri(trainingTarget))
+                .route("entreprise-search", r -> r.path("/entreprise/job-offers/search/**")
+                        .uri(entrepriseTarget))
+                .route("subscription-search", r -> r.path("/sub/plans/search/**")
+                        .uri(subscriptionTarget))
+
                 .route("user", r -> r.path("/user/**")
                         .uri(userTarget))
                 .route("Entreprise", r -> r.path("/entreprise/**")

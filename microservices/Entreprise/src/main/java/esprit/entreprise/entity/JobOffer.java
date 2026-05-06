@@ -5,11 +5,13 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.springframework.data.elasticsearch.annotations.Document;
 
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "job_offers")
+@Document(indexName = "job_offers")
 
 @AllArgsConstructor
 @NoArgsConstructor
@@ -17,9 +19,20 @@ import java.time.LocalDateTime;
 @Setter
 public class JobOffer {
 
-    @Id
+    @jakarta.persistence.Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Transient
+    @org.springframework.data.annotation.Id
+    private String esId;
+
+    /**
+     * ES-only field used by the repository query.
+     * We populate it from {@code title} before indexing.
+     */
+    @Transient
+    private String name;
 
     @Column(nullable = false)
     private String title;

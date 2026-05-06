@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
+import org.springframework.data.elasticsearch.annotations.Document;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -12,10 +13,22 @@ import java.util.List;
 
 @Entity
 @Table(name = "training")
+@Document(indexName = "trainings")
 public class Training {
-    @Id
+    @jakarta.persistence.Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Transient
+    @org.springframework.data.annotation.Id
+    private String esId;
+
+    /**
+     * ES-only field used by the repository query.
+     * We populate it from {@code title} before indexing.
+     */
+    @Transient
+    private String name;
 
     @NotBlank
     @Column(nullable = false)

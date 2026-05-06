@@ -10,6 +10,7 @@ import jakarta.persistence.PersistenceContext;
 import tn.esprit.training.dto.PricingSummaryDTO;
 import tn.esprit.training.dto.TrainingTrendsDTO;
 import tn.esprit.training.service.CoursesQueryService;
+import tn.esprit.training.service.TrainingSearchService;
 
 import java.util.Arrays;
 import java.util.ArrayList;
@@ -23,9 +24,16 @@ public class TrainingsQueryController {
     private EntityManager em;
 
     private final CoursesQueryService service;
+    private final TrainingSearchService trainingSearchService;
 
-    public TrainingsQueryController(CoursesQueryService service) {
+    public TrainingsQueryController(CoursesQueryService service, TrainingSearchService trainingSearchService) {
         this.service = service;
+        this.trainingSearchService = trainingSearchService;
+    }
+
+    @GetMapping("/search")
+    public ResponseEntity<List<tn.esprit.training.entity.Training>> search(@RequestParam("q") String q) {
+        return ResponseEntity.ok(trainingSearchService.search(q));
     }
 
     @GetMapping
