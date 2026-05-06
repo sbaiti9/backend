@@ -30,23 +30,23 @@ data:
                 allowCredentials: true
           routes:
             - id: user
-              uri: http://user:8080
+              uri: http://user.skillio.svc.cluster.local:8080
               predicates:
                 - Path=/user/**
             - id: entreprise
-              uri: http://entreprise:8080
+              uri: http://entreprise.skillio.svc.cluster.local:8080
               predicates:
                 - Path=/entreprise/**
             - id: subscription
-              uri: http://subscription:8080
+              uri: http://subscription.skillio.svc.cluster.local:8080
               predicates:
                 - Path=/sub/**
             - id: event
-              uri: http://event:8080
+              uri: http://event.skillio.svc.cluster.local:8080
               predicates:
                 - Path=/event/**
             - id: training
-              uri: http://training:8080
+              uri: http://training.skillio.svc.cluster.local:8080
               predicates:
                 - Path=/training/**
 ---
