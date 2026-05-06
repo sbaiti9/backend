@@ -23,7 +23,8 @@ public class CorsConfig {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOrigins(List.of(
                 "http://localhost:4200",
-                "http://127.0.0.1:4200"));
+                "http://127.0.0.1:4200",
+                "http://192.168.33.10:30095"));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         // Avec allowCredentials=true, "*" pour les en-têtes autorisés est peu fiable pour Authorization (preflight).
         config.setAllowedHeaders(List.of(
