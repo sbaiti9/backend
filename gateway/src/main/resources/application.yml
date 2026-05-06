@@ -1,8 +1,25 @@
-# CORS côté client : CorsConfig.java (CorsWebFilter).
-# Les microservices peuvent renvoyer leurs propres Access-Control-* ; on les retire sur la réponse proxy pour éviter le doublon avec le filtre CORS de la gateway.
+# CORS : spring.cloud.gateway.globalcors (pas de CorsWebFilter Java).
+# Les microservices peuvent renvoyer leurs propres Access-Control-* ; on les retire sur la réponse proxy pour éviter le doublon avec le CORS global.
 spring:
   cloud:
     gateway:
+      globalcors:
+        add-to-simple-url-handler-mapping: true
+        cors-configurations:
+          '[/**]':
+            allowedOrigins:
+              - "http://192.168.33.10:30095"
+              - "http://localhost:4200"
+            allowedMethods:
+              - "*"
+            allowedHeaders:
+              - "*"
+            allowCredentials: true
+            maxAge: 3600
+            exposedHeaders:
+              - "X-Liveness-Token"
+              - "Authorization"
+              - "X-Skillio-Auth-Hint"
       default-filters:
         - RemoveResponseHeader=Access-Control-Allow-Origin
         - RemoveResponseHeader=Access-Control-Allow-Credentials
