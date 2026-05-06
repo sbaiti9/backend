@@ -1,86 +1,47 @@
 package esprit.gateway;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 import org.springframework.cloud.gateway.route.RouteLocator;
 import org.springframework.cloud.gateway.route.builder.RouteLocatorBuilder;
 import org.springframework.context.annotation.Bean;
-import org.springframework.util.StringUtils;
 
 @SpringBootApplication
-@EnableDiscoveryClient
 public class GatewayApplication {
 
     public static void main(String[] args) {
         SpringApplication.run(GatewayApplication.class, args);
     }
 
-    /**
-     * Si vide : load-balancing Eureka {@code lb://entreprise}. Sinon : URL directe (ex. {@code http://127.0.0.1:8083})
-     * quand Eureka n’est pas démarré — évite le 503 « Service Unavailable » côté gateway.
-     * <p>Même logique pour {@code subscription} via {@code gateway.services.subscription-direct-uri}, et pour
-     * {@code user} via {@code gateway.services.user-direct-uri} (inscription /auth, etc.).</p>
-     * <p>Route {@code /sub/unlock-chat/**} → subscription <strong>sans</strong> réécriture : le contrôleur expose déjà
-     * {@code @RequestMapping("/sub/unlock-chat")} en plus de {@code /api/unlock-chat}. Éviter {@code RewritePath}
-     * ici : selon les versions, la réécriture peut casser les POST (404 sur grant/approve alors que les GET passent).</p>
-     */
     @Bean
-    public RouteLocator gatewayRoutes(
-            RouteLocatorBuilder builder,
-            @Value("${gateway.services.entreprise-direct-uri:}") String entrepriseDirectUri,
-            @Value("${gateway.services.subscription-direct-uri:}") String subscriptionDirectUri,
-            @Value("${gateway.services.user-direct-uri:}") String userDirectUri) {
-
-        String entrepriseTarget = resolveHttpOrLbUri(entrepriseDirectUri, "lb://entreprise");
-        String subscriptionTarget = resolveHttpOrLbUri(subscriptionDirectUri, "lb://subscription");
-        String userTarget = resolveHttpOrLbUri(userDirectUri, "lb://user");
-
-        // URIs lb://* must match Eureka `spring.application.name` exactly (case-sensitive).
-        // Plus spécifique en premier : /sub/unlock-chat/** réécrit avant la route générale /sub/**.
+    public RouteLocator gatewayRoutes(RouteLocatorBuilder builder) {
         return builder.routes()
-                .route("subscription-unlock-chat-sub-prefix", r -> r.path("/sub/unlock-chat/**")
-                        .uri(subscriptionTarget))
-
                 .route("user", r -> r.path("/user/**")
-                        .uri(userTarget))
-                .route("Entreprise", r -> r.path("/entreprise/**")
-                        .uri(entrepriseTarget))
+                        .uri("http://10.106.35.133:8080"))
+                .route("entreprise", r -> r.path("/entreprise/**")
+                        .uri("http://10.107.91.85:8080"))
                 .route("subscription", r -> r.path("/sub/**")
-                        .uri(subscriptionTarget))
+                        .uri("http://10.101.248.217:8080"))
                 .route("subscription-api-ai", r -> r.path("/api/ai/**")
-                        .uri(subscriptionTarget))
+                        .uri("http://10.101.248.217:8080"))
                 .route("subscription-liveness", r -> r.path("/api/liveness/**")
-                        .uri(subscriptionTarget))
+                        .uri("http://10.101.248.217:8080"))
                 .route("subscription-unlock-chat", r -> r.path("/api/unlock-chat/**")
-                        .uri(subscriptionTarget))
+                        .uri("http://10.101.248.217:8080"))
                 .route("subscription-admin-notifications", r -> r.path("/api/admin/notifications/**")
-                        .uri(subscriptionTarget))
+                        .uri("http://10.101.248.217:8080"))
                 .route("subscription-admin-blocks", r -> r.path("/api/admin/blocks/**")
-                        .uri(subscriptionTarget))
-
+                        .uri("http://10.101.248.217:8080"))
                 .route("event", r -> r.path("/event/**")
-                        .uri("lb://event"))
-
+                        .uri("http://10.107.23.197:8080"))
+                .route("training", r -> r.path("/training/**")
+                        .uri("http://10.104.87.89:8080"))
                 .route("training-uploads", r -> r.path("/uploads/**")
-                        .uri("lb://Training"))
+                        .uri("http://10.104.87.89:8080"))
                 .route("training-reviews", r -> r.path("/reviews/**")
-                        .uri("lb://Training"))
+                        .uri("http://10.104.87.89:8080"))
                 .route("training-trainings", r -> r.path("/trainings/**")
-                        .uri("lb://Training"))
-
+                        .uri("http://10.104.87.89:8080"))
                 .build();
-    }
-
-    private static String resolveHttpOrLbUri(String directUri, String lbFallback) {
-        if (!StringUtils.hasText(directUri)) {
-            return lbFallback;
-        }
-        String u = directUri.trim();
-        if (u.startsWith("http://") || u.startsWith("https://")) {
-            return u;
-        }
-        return "http://" + u;
     }
 }
