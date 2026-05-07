@@ -30,7 +30,7 @@ spec:
             - name: SPRING_DATASOURCE_PASSWORD
               value: "root123"
             - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
-              value: "http://localhost:8762/eureka/"
+              value: "http://eureka.skillio.svc.cluster.local:8761/eureka/"
 ---
 apiVersion: v1
 kind: Service

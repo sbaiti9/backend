@@ -1,4 +1,4 @@
-package tn.esprit.training.config;
+package esprit.subscription.config;
 
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
