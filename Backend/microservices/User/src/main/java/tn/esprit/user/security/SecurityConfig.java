@@ -100,7 +100,8 @@ public class SecurityConfig {
                                 AntPathRequestMatcher.antMatcher("/user/search"),
                                 AntPathRequestMatcher.antMatcher("/user/search/**"),
                                 AntPathRequestMatcher.antMatcher("/user/public/**"),
-                                AntPathRequestMatcher.antMatcher("/user/users/*/profile")
+                                AntPathRequestMatcher.antMatcher("/user/users/*/profile"),
+                                AntPathRequestMatcher.antMatcher("/actuator/**")
                         ).permitAll()
                         .requestMatchers(AntPathRequestMatcher.antMatcher("/user/admin/**"))
                                 // Accept both naming variants to avoid authority mapping mismatches.
