@@ -29,7 +29,7 @@ data:
         metrics_path: /actuator/prometheus
         scheme: http
         static_configs:
-          - targets: ["user.skillio.svc.cluster.local:80"]
+          - targets: ["user.skillio.svc.cluster.local:8080"]
             labels:
               microservice: user
 
@@ -37,7 +37,7 @@ data:
         metrics_path: /actuator/prometheus
         scheme: http
         static_configs:
-          - targets: ["training.skillio.svc.cluster.local:80"]
+          - targets: ["training.skillio.svc.cluster.local:8080"]
             labels:
               microservice: training
 
@@ -45,7 +45,7 @@ data:
         metrics_path: /actuator/prometheus
         scheme: http
         static_configs:
-          - targets: ["entreprise.skillio.svc.cluster.local:80"]
+          - targets: ["entreprise.skillio.svc.cluster.local:8083"]
             labels:
               microservice: entreprise
 
@@ -53,7 +53,7 @@ data:
         metrics_path: /actuator/prometheus
         scheme: http
         static_configs:
-          - targets: ["event.skillio.svc.cluster.local:80"]
+          - targets: ["event.skillio.svc.cluster.local:8099"]
             labels:
               microservice: event
 
@@ -61,7 +61,7 @@ data:
         metrics_path: /actuator/prometheus
         scheme: http
         static_configs:
-          - targets: ["subscription.skillio.svc.cluster.local:80"]
+          - targets: ["subscription.skillio.svc.cluster.local:8089"]
             labels:
               microservice: subscription
 
