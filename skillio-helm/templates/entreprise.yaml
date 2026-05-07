@@ -45,6 +45,6 @@ spec:
   selector:
     app: entreprise
   ports:
-    - port: 8080
-      targetPort: 8080
+    - port: 8083
+      targetPort: 8083
       nodePort: 30082
