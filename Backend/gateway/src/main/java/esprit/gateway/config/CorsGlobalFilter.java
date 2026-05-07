@@ -3,7 +3,6 @@ package esprit.gateway.config;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
@@ -28,7 +27,7 @@ public class CorsGlobalFilter {
                 headers.set(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, origin);
                 headers.set(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true");
                 headers.set(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-                headers.set(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, "Authorization,Content-Type,X-Requested-With");
+                headers.set(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, "Authorization,Content-Type,X-Requested-With,X-Auth-Token,x-auth-token");
                 headers.set(HttpHeaders.ACCESS_CONTROL_MAX_AGE, "3600");
             }
 
